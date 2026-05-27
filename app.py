@@ -67,7 +67,6 @@ col4.metric("Buyers", int(buyers))
 st.metric("Open rate", f"{open_rate:.2%}")
 st.metric("Click rate", f"{click_rate:.2%}")
 st.metric("CTR (Click/Open)", f"{ctr:.2%}")
-st.metric("Conversion (Buy/Click)", f"{conversion_rate:.2%}")
 st.metric("Buyer rate (Buy/Delivery)", f"{buyer_rate:.2%}")
 
 # -------------------------
