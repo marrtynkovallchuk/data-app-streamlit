@@ -270,20 +270,35 @@ from scipy.stats import chi2_contingency
 st.subheader("🧪 A/B Experiments Analysis")
 
 # -------------------------
-# CONFIG (важливо)
+# SETTINGS
 # -------------------------
-PRIMARY_METRIC = "buyer"   # можна змінити на "buyer"
+PRIMARY_METRIC = "buyer"   # "click" або "buyer"
 SIGNIFICANCE_LEVEL = 0.05
-MIN_LIFT = 0.05  # 5% business threshold
+MIN_LIFT = 0.05  # 5%
 
+# -------------------------
+# FORMAT P-VALUE
+# -------------------------
+def format_p_value(p):
+    if p < 0.0001:
+        return "< 0.0001"
+    return f"{p:.4f}"
+
+# -------------------------
+# DETECT EXPERIMENTS
+# -------------------------
 group_cols = [col for col in df.columns if "group" in col.lower()]
 
 for col in group_cols:
 
     st.markdown(f"### 📊 {col}")
 
+    # беремо тільки rows де є група
     df_g = df.dropna(subset=[col])
 
+    # -------------------------
+    # AGGREGATION
+    # -------------------------
     ab = df_g.groupby(col).agg(
         deliveries=("delivery_id", "nunique"),
         opens=("read_ts", lambda x: x.notna().sum()),
@@ -291,18 +306,13 @@ for col in group_cols:
         buyers=("buyer", lambda x: (x.astype(str).str.lower() == "buyer").sum())
     ).reset_index()
 
+    # має бути мінімум 2 групи
     if ab.shape[0] < 2:
         st.warning("Not enough groups for A/B comparison")
         continue
 
     # -------------------------
-    # assume 2 groups (Control / Test)
-    # -------------------------
-    g1 = ab.iloc[0]
-    g2 = ab.iloc[1]
-
-    # -------------------------
-    # METRICS
+    # RATES
     # -------------------------
     ab["open_rate"] = ab["opens"] / ab["deliveries"]
     ab["click_rate"] = ab["clicks"] / ab["deliveries"]
@@ -311,7 +321,13 @@ for col in group_cols:
     st.dataframe(ab)
 
     # -------------------------
-    # STAT TEST (click)
+    # CONTROL / TEST
+    # -------------------------
+    g1 = ab.iloc[0]
+    g2 = ab.iloc[1]
+
+    # -------------------------
+    # CLICK SIGNIFICANCE
     # -------------------------
     click_table = np.array([
         [g1["clicks"], g1["deliveries"] - g1["clicks"]],
@@ -321,7 +337,7 @@ for col in group_cols:
     _, p_click, _, _ = chi2_contingency(click_table)
 
     # -------------------------
-    # STAT TEST (buyer)
+    # BUYER SIGNIFICANCE
     # -------------------------
     buyer_table = np.array([
         [g1["buyers"], g1["deliveries"] - g1["buyers"]],
@@ -331,13 +347,28 @@ for col in group_cols:
     _, p_buyer, _, _ = chi2_contingency(buyer_table)
 
     # -------------------------
-    # UPLIFT
+    # UPLIFTS
     # -------------------------
-    click_uplift = (g2["clicks"] / g2["deliveries"]) / (g1["clicks"] / g1["deliveries"]) - 1
-    buyer_uplift = (g2["buyers"] / g2["deliveries"]) / (g1["buyers"] / g1["deliveries"]) - 1
+    click_rate_g1 = g1["clicks"] / g1["deliveries"]
+    click_rate_g2 = g2["clicks"] / g2["deliveries"]
+
+    buyer_rate_g1 = g1["buyers"] / g1["deliveries"]
+    buyer_rate_g2 = g2["buyers"] / g2["deliveries"]
+
+    click_uplift = (click_rate_g2 / click_rate_g1) - 1
+    buyer_uplift = (buyer_rate_g2 / buyer_rate_g1) - 1
 
     # -------------------------
-    # PRIMARY + GUARDRAIL
+    # OUTPUT
+    # -------------------------
+    st.write(f"📊 Click rate p-value: {format_p_value(p_click)}")
+    st.write(f"💰 Buyer rate p-value: {format_p_value(p_buyer)}")
+
+    st.write(f"📈 Click uplift: {click_uplift:.2%}")
+    st.write(f"💰 Buyer uplift: {buyer_uplift:.2%}")
+
+    # -------------------------
+    # PRIMARY METRIC
     # -------------------------
     if PRIMARY_METRIC == "click":
         primary_p = p_click
@@ -346,23 +377,31 @@ for col in group_cols:
         primary_p = p_buyer
         primary_uplift = buyer_uplift
 
-    guardrail_ok = buyer_uplift >= -0.01  # не допускаємо падіння revenue
+    # -------------------------
+    # GUARDRAIL
+    # -------------------------
+    guardrail_ok = buyer_uplift >= -0.01
 
     # -------------------------
-    # OUTPUT
+    # DECISION
     # -------------------------
-    st.write(f"📊 Click rate p-value: {p_click:.6f}")
-    st.write(f"💰 Buyer rate p-value: {p_buyer:.6f}")
+    if (
+        primary_p < SIGNIFICANCE_LEVEL
+        and primary_uplift > MIN_LIFT
+        and guardrail_ok
+    ):
+        st.success(
+            "🚀 Rollout recommended "
+            "(significant + meaningful uplift)"
+        )
 
-    st.write(f"📈 Click uplift: {click_uplift:.2%}")
-    st.write(f"💰 Buyer uplift: {buyer_uplift:.2%}")
-
-    # -------------------------
-    # DECISION LOGIC
-    # -------------------------
-    if primary_p < SIGNIFICANCE_LEVEL and primary_uplift > MIN_LIFT and guardrail_ok:
-        st.success("🚀 ROLLOUT recommended (significant + meaningful + safe)")
     elif primary_p < SIGNIFICANCE_LEVEL:
-        st.info("⚠️ Statistically significant but not practically strong enough")
+        st.info(
+            "⚠️ Statistically significant "
+            "but business impact is limited"
+        )
+
     else:
-        st.warning("❌ No meaningful effect detected")
+        st.warning(
+            "❌ No statistically significant effect detected"
+        )
