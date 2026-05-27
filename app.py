@@ -141,9 +141,54 @@ st.line_chart(daily.set_index("date")["conversion_rate"])
 # -------------------------
 # SIMPLE ANOMALIES
 # -------------------------
-st.subheader("⚠️ Anomalies")
+st.subheader("📊 Critical changes detection")
 
-daily["ma7"] = daily["buyer_rate"].rolling(7).mean()
-daily["anomaly"] = daily["buyer_rate"] < daily["ma7"] * 0.9
+# -------------------------
+# prepare daily metrics
+# -------------------------
+df["date"] = pd.to_datetime(df["date"], errors="coerce")
 
-st.dataframe(daily[daily["anomaly"] == True])
+daily = df.groupby("date").agg(
+    deliveries=("delivery_id", "nunique"),
+    opens=("read_ts", lambda x: x.notna().sum()),
+    clicks=("click_ts", lambda x: x.notna().sum()),
+    buyers=("buyer", lambda x: (x.astype(str).str.lower() == "buyer").sum())
+).reset_index()
+
+daily = daily.sort_values("date")
+
+# -------------------------
+# calculate rates
+# -------------------------
+daily["open_rate"] = daily["opens"] / daily["deliveries"]
+daily["click_rate"] = daily["clicks"] / daily["deliveries"]
+daily["buyer_rate"] = daily["buyers"] / daily["deliveries"]
+
+# -------------------------
+# helper: % change
+# -------------------------
+def pct_change(curr, prev):
+    if prev == 0 or pd.isna(prev):
+        return 0
+    return (curr - prev) / prev
+
+latest = daily.iloc[-1]
+prev = daily.iloc[-2]
+
+metrics = {
+    "Deliveries": "deliveries",
+    "Open rate": "open_rate",
+    "Click rate": "click_rate",
+    "Buyer rate": "buyer_rate"
+}
+
+for name, col in metrics.items():
+
+    change = pct_change(latest[col], prev[col])
+
+    if change > 0.1:
+        st.success(f"🟢 {name}: +{change:.1%} (growth)")
+    elif change < -0.1:
+        st.error(f"🔴 {name}: {change:.1%} (drop)")
+    else:
+        st.info(f"⚪ {name}: {change:.1%} (stable)")
