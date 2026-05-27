@@ -66,9 +66,20 @@ st.metric("Open rate", f"{open_rate:.2%}")
 st.metric("Click rate", f"{click_rate:.2%}")
 st.metric("CTR (Click/Open)", f"{ctr:.2%}")
 
-st.markdown("### 💰 Monetization")
+st.subheader("💰 Monetization")
+
+deliveries = df["delivery_id"].nunique() if "delivery_id" in df.columns else len(df)
+
+opens = df["read_ts"].notna().sum()
+clicks = df["click_ts"].notna().sum()
+buyers = (df["buyer"].astype(str).str.lower() == "buyer").sum()
+
+buyer_rate = buyers / deliveries if deliveries else 0
+buyer_per_delivery = buyers / deliveries if deliveries else 0
+
 st.metric("Buyer rate (Buy/Delivery)", f"{buyer_rate:.2%}")
-st.metric("Buyer per click", f"{buyer_per_click:.2%}")
+
+st.metric("Buyer intensity (Buy/Delivery)", f"{buyer_per_delivery:.2%}")
 
 # -------------------------
 # 📊 BREAKDOWNS (РОЗРІЗИ)
