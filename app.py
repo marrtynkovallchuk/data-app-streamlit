@@ -26,18 +26,10 @@ if uploaded_file is not None:
 
 df["date"] = pd.to_datetime(df["date"], errors="coerce")
 
-# -------------------------
-# KPI BLOCK
-# -------------------------
-# -------------------------
-# KPI BLOCK (CORRECT VERSION)
-# -------------------------
 st.subheader("Key Metrics")
 
-import pandas as pd
-
 # -------------------------
-# user-level aggregation (ВАЖЛИВО)
+# USER LEVEL DATASET (core fix)
 # -------------------------
 user_df = df.copy()
 
@@ -45,38 +37,44 @@ user_df["is_buyer"] = user_df["buyer"].astype(str).str.lower() == "buyer"
 
 user_level = user_df.groupby("user_id").agg(
     buyer=("is_buyer", "max"),
-    clicked=("click_ts", lambda x: x.notna().any()),
-    opened=("read_ts", lambda x: x.notna().any())
+    opened=("read_ts", lambda x: x.notna().any()),
+    clicked=("click_ts", lambda x: x.notna().any())
 ).reset_index()
 
 # -------------------------
-# METRICS
+# BASE COUNTS
 # -------------------------
-total_users = len(user_level)
+users = len(user_level)
 buyers = user_level["buyer"].sum()
-clicks = user_level["clicked"].sum()
 opens = user_level["opened"].sum()
+clicks = user_level["clicked"].sum()
 
-open_rate = opens / total_users if total_users > 0 else 0
-click_rate = clicks / total_users if total_users > 0 else 0
+# -------------------------
+# CORE METRICS (CONSISTENT DENOMINATORS)
+# -------------------------
+open_rate = opens / users if users > 0 else 0
+click_rate = clicks / users if users > 0 else 0
 
-conversion_per_click = buyers / clicks if clicks > 0 else 0
-conversion_rate = buyers / total_users if total_users > 0 else 0
+ctr_open = clicks / opens if opens > 0 else 0
+conversion_rate = buyers / users if users > 0 else 0
+conv_per_click = buyers / clicks if clicks > 0 else 0
 
 # -------------------------
 # UI
 # -------------------------
 col1, col2, col3, col4 = st.columns(4)
 
-col1.metric("Users", total_users)
+col1.metric("Users", users)
 col2.metric("Buyers", int(buyers))
 col3.metric("Open rate", f"{open_rate:.2%}")
 col4.metric("Click rate", f"{click_rate:.2%}")
 
 col5, col6 = st.columns(2)
 
-col5.metric("Conv rate", f"{conversion_rate:.2%}")
-col6.metric("Conv per click", f"{conversion_per_click:.2%}")
+col5.metric("CTR (Click/Open)", f"{ctr_open:.2%}")
+col6.metric("Conv per click", f"{conv_per_click:.2%}")
+
+st.metric("Conversion rate", f"{conversion_rate:.2%}")
 
 # -------------------------
 # 📊 BREAKDOWNS (РОЗРІЗИ)
