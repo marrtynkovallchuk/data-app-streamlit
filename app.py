@@ -351,8 +351,8 @@ for col in group_cols:
     # -------------------------
     # OUTPUT
     # -------------------------
-    st.write(f"📊 Click rate p-value: {p_click:.4f}")
-    st.write(f"💰 Buyer rate p-value: {p_buyer:.4f}")
+    st.write(f"📊 Click rate p-value: {p_click:.6f}")
+    st.write(f"💰 Buyer rate p-value: {p_buyer:.6f}")
 
     st.write(f"📈 Click uplift: {click_uplift:.2%}")
     st.write(f"💰 Buyer uplift: {buyer_uplift:.2%}")
