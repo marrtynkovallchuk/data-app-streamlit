@@ -35,8 +35,8 @@ total_users = len(df)
 
 buyers = (df["buyer"].astype(str).str.lower() == "buyer").sum()
 
-open_rate = df["Read_ts"].notna().mean()
-click_rate = df["Click_ts"].notna().mean()
+open_rate = df["read_ts"].notna().mean()
+click_rate = df["click_ts"].notna().mean()
 
 conversion_rate = buyers / total_users if total_users > 0 else 0
 
