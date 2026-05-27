@@ -55,8 +55,8 @@ st.subheader("📈 Trends over time")
 daily = df.groupby("date").agg(
     users=("user_id", "count"),
     buyers=("buyer", lambda x: (x.astype(str).str.lower() == "buyer").sum()),
-    open_rate=("Read_ts", lambda x: x.notna().mean()),
-    click_rate=("Click_ts", lambda x: x.notna().mean())
+    open_rate=("read_ts", lambda x: x.notna().mean()),
+    click_rate=("click_ts", lambda x: x.notna().mean())
 ).reset_index()
 
 daily["buyer_rate"] = daily["buyers"] / daily["users"]
