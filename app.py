@@ -1,4 +1,4 @@
-
+import streamlit as st
 import pandas as pd
 import numpy as np
 import csv
@@ -19,29 +19,147 @@ ANOMALY_THRESHOLD  = 0.20   # 20% зміна = критична
 
 
 # ─────────────────────────────────────────────────────────
-# AI SUMMARY  (реальний API-call)
+# AI SUMMARY
+# Пріоритет: Groq (безкоштовний) → rule-based fallback
 # ─────────────────────────────────────────────────────────
 def get_ai_summary(prompt: str) -> str:
-    try:
-        import anthropic
-        api_key = (
-            st.secrets.get("ANTHROPIC_API_KEY", None)
-            or os.environ.get("ANTHROPIC_API_KEY", "")
-        )
-        if not api_key:
-            return (
-                "⚠️ ANTHROPIC_API_KEY не задано. "
-                "Додай його у .streamlit/secrets.toml або як змінну середовища."
+    """Спочатку пробує Groq API (безкоштовно), якщо ключа нема — rule-based."""
+    groq_key = (
+        st.secrets.get("GROQ_API_KEY", None)
+        or os.environ.get("GROQ_API_KEY", "")
+    )
+    if groq_key:
+        try:
+            import requests
+            resp = requests.post(
+                "https://api.groq.com/openai/v1/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {groq_key}",
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "model": "llama3-8b-8192",
+                    "messages": [{"role": "user", "content": prompt}],
+                    "max_tokens": 600,
+                    "temperature": 0.4,
+                },
+                timeout=30,
             )
-        client = anthropic.Anthropic(api_key=api_key)
-        msg = client.messages.create(
-            model="claude-sonnet-4-20250514",
-            max_tokens=600,
-            messages=[{"role": "user", "content": prompt}],
-        )
-        return msg.content[0].text
-    except Exception as e:
-        return f"⚠️ Помилка AI: {e}"
+            resp.raise_for_status()
+            return resp.json()["choices"][0]["message"]["content"]
+        except Exception as e:
+            return f"⚠️ Groq помилка: {e}"
+    # ── Rule-based fallback (без API) ──────────────────
+    return _rule_based_summary(prompt)
+
+
+def _rule_based_summary(prompt: str) -> str:
+    """Генерує структурований інсайт на основі метрик з prompt-рядка."""
+    import re
+
+    def extract(pattern, text, default=None):
+        m = re.search(pattern, text)
+        return m.group(1) if m else default
+
+    lines = []
+
+    # ── Monitoring summary ──────────────────────────────
+    if "Open rate:" in prompt and "CTR" in prompt and "Paid rate:" in prompt:
+        open_r = extract(r"Open rate:\s*([\d.]+)%", prompt)
+        ctr    = extract(r"CTR[^:]*:\s*([\d.]+)%", prompt)
+        paid_r = extract(r"Paid rate[^:]*:\s*([\d.]+)%", prompt)
+        creds  = extract(r"Total paid credits:\s*([\d,]+)", prompt)
+        seg    = extract(r"Segment:\s*(\S+)", prompt, "All")
+
+        open_v = float(open_r) / 100 if open_r else None
+        ctr_v  = float(ctr)    / 100 if ctr    else None
+        paid_v = float(paid_r) / 100 if paid_r else None
+
+        if open_v is not None:
+            if open_v < 0.15:
+                lines.append("📉 Open rate нижче 15% — варто протестувати теми листів та час відправки.")
+            elif open_v > 0.25:
+                lines.append("✅ Open rate вище 25% — хороший рівень залученості на верхньому етапі воронки.")
+            else:
+                lines.append(f"📊 Open rate {open_v:.1%} знаходиться в нормальному діапазоні для email-кампаній.")
+
+        if ctr_v is not None:
+            if ctr_v < 0.10:
+                lines.append("⚠️ CTR нижче 10% від відкритих — основний дроп у воронці. Пріоритет: покращити CTA та релевантність контенту листа.")
+            elif ctr_v > 0.20:
+                lines.append("✅ CTR вище 20% — контент листів добре конвертує відкриття у кліки.")
+            else:
+                lines.append(f"📊 CTR {ctr_v:.1%} — середній рівень, є потенціал для покращення через A/B тести CTA.")
+
+        if paid_v is not None:
+            if paid_v < 0.15:
+                lines.append("🔴 Paid rate нижче 15% — низька конверсія кліків у витрати. Можлива проблема з посадковою сторінкою або релевантністю офферу.")
+            elif paid_v > 0.30:
+                lines.append("💚 Paid rate вище 30% — сильна монетизація після кліку, email добре таргетує готових платити користувачів.")
+            else:
+                lines.append(f"📊 Paid rate {paid_v:.1%} — помірна конверсія в оплату, варто сегментувати відправки на buyers та non-buyers.")
+
+        # MoM changes
+        mom_open = extract(r"Open rate:\s*([+-][\d.]+)%", prompt)
+        mom_paid = extract(r"Paid rate:\s*([+-][\d.]+)%", prompt)
+        if mom_open:
+            v = float(mom_open)
+            if v < -20:
+                lines.append(f"🚨 Open rate впав на {abs(v):.0f}% MoM — критична зміна, потребує негайного аналізу причин.")
+            elif v > 20:
+                lines.append(f"📈 Open rate зріс на {v:.0f}% MoM — позитивний сигнал, варто зафіксувати що змінилось.")
+        if mom_paid:
+            v = float(mom_paid)
+            if v < -10:
+                lines.append(f"⚠️ Paid rate впав на {abs(v):.0f}% MoM — варто перевірити якість трафіку та склад аудиторії.")
+
+        lines.append(f"💡 Рекомендація: фокус на сегменті buyers (вищий paid rate), тестування часу відправки та персоналізованого контенту для підвищення CTR.")
+
+    # ── A/B summary ─────────────────────────────────────
+    elif "Uplift" in prompt and "p-value" in prompt and "Guardrail" in prompt:
+        guardrail = extract(r"Guardrail[^:]*:\s*(\w+)", prompt, "UNKNOWN")
+        decision  = extract(r"Decision:\s*(.+)", prompt, "Unknown")
+
+        # витягуємо uplift для paid rate
+        paid_lines = [l for l in prompt.split("\n") if "Paid rate" in l and "|" in l]
+        paid_uplift = None
+        paid_pval   = None
+        if paid_lines:
+            parts = [p.strip() for p in paid_lines[0].split("|")]
+            if len(parts) >= 5:
+                paid_uplift = extract(r"([+-][\d.]+)%", parts[3])
+                paid_pval   = extract(r"([\d.]+)", parts[4])
+
+        if paid_uplift:
+            uv = float(paid_uplift)
+            if uv > 5:
+                lines.append(f"📈 Тест показує +{uv:.1f}% uplift у paid rate — позитивний сигнал для монетизації.")
+            elif uv < -5:
+                lines.append(f"📉 Тест показує {uv:.1f}% зміну у paid rate — негативний ефект на монетизацію.")
+            else:
+                lines.append(f"➡️ Uplift paid rate складає {uv:.1f}% — ефект невеликий, може не досягати бізнес-порогу.")
+
+        if paid_pval:
+            pv = float(paid_pval)
+            if pv < 0.05:
+                lines.append(f"✅ Результат статистично значущий (p={pv:.4f}) — ефект не є випадковим.")
+            else:
+                lines.append(f"❌ Результат статистично не значущий (p={pv:.4f}) — можливо шум або замалий розмір вибірки.")
+
+        if guardrail == "PASSED":
+            lines.append("✅ Guardrail (CTR) пройдено — зміна не погіршила залученість користувачів.")
+        elif guardrail == "FAILED":
+            lines.append("🛑 Guardrail (CTR) не пройдено — тест підвищив paid rate, але знизив кліки, що ризиковано довгостроково.")
+
+        if decision == "Rollout":
+            lines.append("🚀 Рекомендація: впроваджувати зміну. Моніторити paid credits та CTR перші 2 тижні після rollout.")
+        else:
+            lines.append("⏸️ Рекомендація: не впроваджувати. Переглянути гіпотезу або продовжити збір даних до досягнення необхідного розміру вибірки.")
+
+    if not lines:
+        lines.append("📊 Недостатньо даних для автоматичного інсайту. Перевір фільтри або завантаж повний датасет.")
+
+    return "\n\n".join(lines)
 
 
 # ─────────────────────────────────────────────────────────
@@ -123,6 +241,8 @@ elif segment_filter == "Non-buyers only":
 # TABS
 # ─────────────────────────────────────────────────────────
 tab1, tab2, tab3 = st.tabs(["📊 Моніторинг", "🧪 A/B Аналіз", "👥 Сегменти"])
+
+
 # ═══════════════════════════════════════════════════════
 # TAB 1 — MONITORING
 # ═══════════════════════════════════════════════════════
@@ -216,7 +336,8 @@ with tab1:
             mode="lines", name="Trend",
             line=dict(dash="dash", color="red"),
         )
- # Аномалії (±2σ)
+
+    # Аномалії (±2σ)
     mean_v, std_v = daily_clean[metric_choice].mean(), daily_clean[metric_choice].std()
     if std_v > 0:
         anomalies = daily_clean[abs(daily_clean[metric_choice] - mean_v) > 2 * std_v]
@@ -295,7 +416,8 @@ with tab1:
             }),
             use_container_width=True,
         )
- # ── Rule breakdown ──────────────────────────────────
+
+    # ── Rule breakdown ──────────────────────────────────
     rule_col = next((c for c in df.columns if c.lower() == "rule"), None)
     if rule_col:
         st.subheader("📋 Ефективність по Rule (сегмент відправки)")
@@ -384,7 +506,8 @@ with tab2:
         else:
             df_ctrl = df_g[df_g[selected_group] == control_val]
             df_test = df_g[df_g[selected_group] == test_val]
- def group_metrics(gdf):
+
+            def group_metrics(gdf):
                 d     = gdf["delivery_id"].nunique() if "delivery_id" in gdf.columns else len(gdf)
                 o     = int(gdf["is_open"].sum())
                 c     = int(gdf["is_click"].sum())
@@ -467,7 +590,8 @@ with tab2:
                                    test["opens"],       test["clicks"])
             r_paid = chi2_with_ci(ctrl["clicks"],      ctrl["paid"],
                                    test["clicks"],      test["paid"])
- def sig_badge(p):
+
+            def sig_badge(p):
                 if p is None: return "⚠️ N/A (мало даних)"
                 if p < 0.01:  return f"✅ p={p:.4f} (highly significant)"
                 if p < 0.05:  return f"✅ p={p:.4f} (significant)"
@@ -537,6 +661,7 @@ Sample sizes: Control={ctrl['deliveries']:,}, Test={test['deliveries']:,}
 | Open rate | {r_open[0]:.2%} | {r_open[1]:.2%} | {upl_str(r_open[3])} | {f"{r_open[2]:.4f}" if r_open[2] else "N/A"} | {r_open[2] is not None and r_open[2] < 0.05} |
 | CTR       | {r_ctr[0]:.2%}  | {r_ctr[1]:.2%}  | {upl_str(r_ctr[3])}  | {f"{r_ctr[2]:.4f}"  if r_ctr[2]  else "N/A"} | {r_ctr[2]  is not None and r_ctr[2]  < 0.05} |
 | Paid rate | {r_paid[0]:.2%} | {r_paid[1]:.2%} | {upl_str(r_paid[3])} | {f"{r_paid[2]:.4f}" if r_paid[2] else "N/A"} | {r_paid[2] is not None and r_paid[2] < 0.05} |
+
 Avg paid credits: Control={ctrl['avg_creds']:.1f}, Test={test['avg_creds']:.1f}
 Guardrail (CTR not dropped): {"PASSED" if guardrail_ok else "FAILED"}
 Decision: {"Rollout" if primary_sig and primary_uplift > MIN_LIFT and guardrail_ok else "No rollout"}
@@ -625,7 +750,8 @@ with tab3:
         color_discrete_map={"Buyers": "#00CC96", "Non-buyers": "#AB63FA"},
     )
     st.plotly_chart(fig_seg_trend, use_container_width=True)
- # ── Credits distribution ───────────────────────────
+
+    # ── Credits distribution ───────────────────────────
     st.subheader("💰 Розподіл paid credits по сегменту")
     cred_df = df[df["not_free_credits"] > 0]
     if not cred_df.empty:
