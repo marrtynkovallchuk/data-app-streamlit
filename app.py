@@ -34,12 +34,17 @@ st.subheader("Key Metrics")
 total_users = len(df)
 
 buyers = (df["buyer"].astype(str).str.lower() == "buyer").sum()
-not_buyers = (df["buyer"].astype(str).str.lower() == "not buyer").sum()
 
 open_rate = df["read_ts"].notna().mean()
 click_rate = df["click_ts"].notna().mean()
 
+ctor = df["click_ts"].notna().sum() / df["read_ts"].notna().sum() if df["read_ts"].notna().sum() > 0 else 0
+
 conversion_rate = buyers / total_users if total_users > 0 else 0
+
+conversion_per_click = buyers / df["click_ts"].notna().sum() if df["click_ts"].notna().sum() > 0 else 0
+
+engagement_rate = df[["read_ts", "click_ts"]].notna().any(axis=1).mean()
 
 col1, col2, col3, col4 = st.columns(4)
 
@@ -47,6 +52,12 @@ col1.metric("Users", total_users)
 col2.metric("Buyers", int(buyers))
 col3.metric("Open rate", f"{open_rate:.2%}")
 col4.metric("Click rate", f"{click_rate:.2%}")
+
+col5, col6, col7 = st.columns(3)
+
+col5.metric("CTOR", f"{ctor:.2%}")
+col6.metric("Conv per click", f"{conversion_per_click:.2%}")
+col7.metric("Engagement", f"{engagement_rate:.2%}")
 
 # -------------------------
 # 📊 BREAKDOWNS (РОЗРІЗИ)
