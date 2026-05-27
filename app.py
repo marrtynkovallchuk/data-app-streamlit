@@ -31,3 +31,36 @@ if uploaded_file is not None:
     # 👀 preview
     st.subheader("Preview")
     st.dataframe(df.head())
+
+st.subheader("📊 Key Metrics")
+
+# базові перевірки колонок
+if "buyer" in df.columns:
+    total_users = len(df)
+    buyers = df["buyer"].sum() if df["buyer"].dtype != "O" else (df["buyer"] == 1).sum()
+
+    conversion_rate = buyers / total_users
+
+    col1, col2, col3 = st.columns(3)
+
+    col1.metric("Total users", total_users)
+    col2.metric("Buyers", buyers)
+    col3.metric("Conversion rate", f"{conversion_rate:.2%}")
+
+if "date" in df.columns:
+    st.subheader("📈 Daily volume")
+
+    df["date"] = pd.to_datetime(df["date"], errors="coerce")
+
+    daily = df.groupby("date").size()
+
+    st.line_chart(daily)
+
+st.subheader("🧪 A/B Overview")
+
+group_cols = [col for col in df.columns if "Group" in col or "group" in col]
+
+if group_cols:
+    for col in group_cols:
+        st.write(f"Distribution for {col}")
+        st.bar_chart(df[col].value_counts())
