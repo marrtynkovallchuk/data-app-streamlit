@@ -26,60 +26,49 @@ if uploaded_file is not None:
 
 df["date"] = pd.to_datetime(df["date"], errors="coerce")
 
-st.subheader("Key Metrics")
+st.subheader("Key Metrics (Event-level - Mailkeeper)")
 
 # -------------------------
-# USER-LEVEL BASE
+# BASE
 # -------------------------
-user_df = df.copy()
+total_events = len(df)
 
-user_df["is_buyer"] = user_df["buyer"].astype(str).str.lower() == "buyer"
+buyers = (df["buyer"].astype(str).str.lower() == "buyer").sum()
 
-user_level = user_df.groupby("user_id").agg(
-    buyer=("is_buyer", "max"),
-    opened=("read_ts", lambda x: x.notna().any()),
-    clicked=("click_ts", lambda x: x.notna().any())
-).reset_index()
+opens = df["read_ts"].notna().sum()
+clicks = df["click_ts"].notna().sum()
 
-# -------------------------
-# BASE COUNTS
-# -------------------------
-users = len(user_level)
-buyers = user_level["buyer"].sum()
-opens = user_level["opened"].sum()
-clicks = user_level["clicked"].sum()
+# IMPORTANT: delivery base (якщо є send/delivery)
+if "delivery_id" in df.columns:
+    deliveries = df["delivery_id"].nunique()
+else:
+    deliveries = total_events  # fallback
 
 # -------------------------
-# SAFE METRICS (CONSISTENT)
+# METRICS (mail logic)
 # -------------------------
-open_rate = opens / users if users else 0
-click_rate = clicks / users if users else 0
+open_rate = opens / deliveries if deliveries else 0
+click_rate = clicks / deliveries if deliveries else 0
 
-ctr_open = clicks / opens if opens else 0
-conversion_rate = buyers / users if users else 0
-conv_per_click = buyers / clicks if clicks else 0
-
-# -------------------------
-# SANITY CHECK (важливо!)
-# -------------------------
-st.caption(f"Sanity: opens={opens}, clicks={clicks}, users={users}")
+ctr = clicks / opens if opens else 0
+conversion_rate = buyers / clicks if clicks else 0
+buyer_rate = buyers / deliveries if deliveries else 0
 
 # -------------------------
 # UI
 # -------------------------
 col1, col2, col3, col4 = st.columns(4)
 
-col1.metric("Users", users)
-col2.metric("Buyers", int(buyers))
-col3.metric("Open rate", f"{open_rate:.2%}")
-col4.metric("Click rate", f"{click_rate:.2%}")
+col1.metric("Deliveries", deliveries)
+col2.metric("Opens", int(opens))
+col3.metric("Clicks", int(clicks))
+col4.metric("Buyers", int(buyers))
 
-col5, col6 = st.columns(2)
-
-col5.metric("CTR (Click/Open)", f"{ctr_open:.2%}")
-col6.metric("Conv per click", f"{conv_per_click:.2%}")
-
-st.metric("Conversion rate", f"{conversion_rate:.2%}")
+st.metric("Open rate", f"{open_rate:.2%}")
+st.metric("Click rate", f"{click_rate:.2%}")
+st.metric("CTR (Click/Open)", f"{ctr:.2%}")
+st.metric("Conversion (Buy/Click)", f"{conversion_rate:.2%}")
+st.metric("Buyer rate (Buy/Delivery)", f"{buyer_rate:.2%}")
 
 # -------------------------
 # 📊 BREAKDOWNS (РОЗРІЗИ)
