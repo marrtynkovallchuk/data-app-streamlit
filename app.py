@@ -20,35 +20,7 @@ ANOMALY_THRESHOLD  = 0.20   # 20% зміна = критична
 
 # ─────────────────────────────────────────────────────────
 # AI SUMMARY
-# Пріоритет: Groq (безкоштовний) → rule-based fallback
 # ─────────────────────────────────────────────────────────
-def get_ai_summary(prompt: str) -> str:
-    """Спочатку пробує Groq API (безкоштовно), якщо ключа нема — rule-based."""
-    groq_key = (
-        st.secrets.get("GROQ_API_KEY", None)
-        or os.environ.get("GROQ_API_KEY", "")
-    )
-    if groq_key:
-        try:
-            import requests
-            resp = requests.post(
-                "https://api.groq.com/openai/v1/chat/completions",
-                headers={
-                    "Authorization": f"Bearer {groq_key}",
-                    "Content-Type": "application/json",
-                },
-                json={
-                    "model": "llama3-8b-8192",
-                    "messages": [{"role": "user", "content": prompt}],
-                    "max_tokens": 600,
-                    "temperature": 0.4,
-                },
-                timeout=30,
-            )
-            resp.raise_for_status()
-            return resp.json()["choices"][0]["message"]["content"]
-        except Exception as e:
-            return f"⚠️ Groq помилка: {e}"
     # ── Rule-based fallback (без API) ──────────────────
     return _rule_based_summary(prompt)
 
