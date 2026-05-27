@@ -31,19 +31,3 @@ if uploaded_file is not None:
     # 👀 preview
     st.subheader("Preview")
     st.dataframe(df.head())
-
-    # 📊 debug - optional but very useful
-    st.subheader("Data types")
-    st.write(df.dtypes)
-
-    # 📈 simple visualization (if date exists)
-    if "date" in df.columns:
-        df["date"] = pd.to_datetime(df["date"], errors="coerce")
-
-        chart_data = df.groupby("date").size()
-
-        st.subheader("Records over time")
-        st.line_chart(chart_data)
-
-else:
-    st.info("Upload a CSV file to start analysis 👆")
