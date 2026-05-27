@@ -75,11 +75,12 @@ clicks = df["click_ts"].notna().sum()
 buyers = (df["buyer"].astype(str).str.lower() == "buyer").sum()
 
 buyer_rate = buyers / deliveries if deliveries else 0
-buyer_per_delivery = buyers / deliveries if deliveries else 0
+buyer_per_click = buyers / clicks if clicks else 0
+buyer_per_open = buyers / opens if opens else 0
 
 st.metric("Buyer rate (Buy/Delivery)", f"{buyer_rate:.2%}")
-
-st.metric("Buyer intensity (Buy/Delivery)", f"{buyer_per_delivery:.2%}")
+st.metric("Buyer per Click (Buy/Click)", f"{buyer_per_click:.2%}")
+st.metric("Buyer per Open (Buy/Open)", f"{buyer_per_open:.2%}")
 
 # -------------------------
 # 📊 BREAKDOWNS (РОЗРІЗИ)
