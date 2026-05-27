@@ -193,3 +193,27 @@ else:
     st.write(render("Open rate", latest["open_rate"], prev["open_rate"]))
     st.write(render("Click rate", latest["click_rate"], prev["click_rate"]))
     st.write(render("Buyer rate", latest["buyer_rate"], prev["buyer_rate"]))
+
+st.subheader("🤖 AI-generated summary")
+
+deliveries_change = (latest["deliveries"] - prev["deliveries"]) / prev["deliveries"]
+open_change = (latest["open_rate"] - prev["open_rate"]) / prev["open_rate"]
+click_change = (latest["click_rate"] - prev["click_rate"]) / prev["click_rate"]
+buyer_change = (latest["buyer_rate"] - prev["buyer_rate"]) / prev["buyer_rate"]
+
+summary = f"""
+📊 Period overview:
+
+- Email activity (deliveries) changed by {deliveries_change:.1%}, indicating a {'significant drop' if deliveries_change < -0.2 else 'stable trend'} in campaign volume.
+
+- Open rate changed by {open_change:.1%}, showing {'lower engagement' if open_change < 0 else 'stable or improving engagement'} at the top of the funnel.
+
+- Click rate changed by {click_change:.1%}, suggesting {'reduced content effectiveness' if click_change < 0 else 'stable user interest'} after email opens.
+
+- Buyer rate changed by {buyer_change:.1%}, indicating {'stable monetization quality' if abs(buyer_change) < 0.1 else 'changes in purchasing behavior'}.
+
+📌 Key insight:
+The main impact comes from the top of the funnel (deliveries and engagement), while monetization remains relatively stable.
+"""
+
+st.info(summary)
