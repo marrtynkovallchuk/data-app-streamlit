@@ -143,9 +143,6 @@ st.line_chart(daily.set_index("date")["conversion_rate"])
 # -------------------------
 st.subheader("📊 Critical changes detection")
 
-# -------------------------
-# prepare daily metrics
-# -------------------------
 df["date"] = pd.to_datetime(df["date"], errors="coerce")
 
 daily = df.groupby("date").agg(
@@ -157,38 +154,27 @@ daily = df.groupby("date").agg(
 
 daily = daily.sort_values("date")
 
-# -------------------------
-# calculate rates
-# -------------------------
 daily["open_rate"] = daily["opens"] / daily["deliveries"]
 daily["click_rate"] = daily["clicks"] / daily["deliveries"]
 daily["buyer_rate"] = daily["buyers"] / daily["deliveries"]
 
-# -------------------------
-# helper: % change
-# -------------------------
-def pct_change(curr, prev):
-    if prev == 0 or pd.isna(prev):
-        return 0
-    return (curr - prev) / prev
-
 latest = daily.iloc[-1]
 prev = daily.iloc[-2]
 
-metrics = {
-    "Deliveries": "deliveries",
-    "Open rate": "open_rate",
-    "Click rate": "click_rate",
-    "Buyer rate": "buyer_rate"
-}
+def render(metric_name, curr, prev):
+    if prev == 0:
+        return f"{metric_name}: no previous data"
 
-for name, col in metrics.items():
+    change = (curr - prev) / prev
 
-    change = pct_change(latest[col], prev[col])
+    return f"""
+{metric_name}:
+- current: {curr:.2f}
+- previous: {prev:.2f}
+- change: {change:.1%}
+"""
 
-    if change > 0.1:
-        st.success(f"🟢 {name}: +{change:.1%} (growth)")
-    elif change < -0.1:
-        st.error(f"🔴 {name}: {change:.1%} (drop)")
-    else:
-        st.info(f"⚪ {name}: {change:.1%} (stable)")
+st.write(render("Deliveries", latest["deliveries"], prev["deliveries"]))
+st.write(render("Open rate", latest["open_rate"], prev["open_rate"]))
+st.write(render("Click rate", latest["click_rate"], prev["click_rate"]))
+st.write(render("Buyer rate", latest["buyer_rate"], prev["buyer_rate"]))
