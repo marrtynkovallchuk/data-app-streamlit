@@ -26,33 +26,30 @@ if uploaded_file is not None:
 
 df["date"] = pd.to_datetime(df["date"], errors="coerce")
 
-st.subheader("Key Metrics (Event-level - Mailkeeper)")
+st.subheader("Key Metrics (Mailkeeper)")
 
 # -------------------------
-# BASE
+# BASE EVENTS
 # -------------------------
-total_events = len(df)
-
-buyers = (df["buyer"].astype(str).str.lower() == "buyer").sum()
+deliveries = df["delivery_id"].nunique() if "delivery_id" in df.columns else len(df)
 
 opens = df["read_ts"].notna().sum()
 clicks = df["click_ts"].notna().sum()
 
-# IMPORTANT: delivery base (якщо є send/delivery)
-if "delivery_id" in df.columns:
-    deliveries = df["delivery_id"].nunique()
-else:
-    deliveries = total_events  # fallback
+buyers = (df["buyer"].astype(str).str.lower() == "buyer").sum()
 
 # -------------------------
-# METRICS (mail logic)
+# EMAIL FUNNEL METRICS
 # -------------------------
 open_rate = opens / deliveries if deliveries else 0
 click_rate = clicks / deliveries if deliveries else 0
-
 ctr = clicks / opens if opens else 0
-conversion_rate = buyers / clicks if clicks else 0
+
+# -------------------------
+# MONETIZATION METRICS (SEPARATE LOGIC)
+# -------------------------
 buyer_rate = buyers / deliveries if deliveries else 0
+buyer_per_click = buyers / clicks if clicks else 0 if clicks else 0
 
 # -------------------------
 # UI
@@ -64,14 +61,14 @@ col2.metric("Opens", int(opens))
 col3.metric("Clicks", int(clicks))
 col4.metric("Buyers", int(buyers))
 
+st.markdown("### 📩 Email Funnel")
 st.metric("Open rate", f"{open_rate:.2%}")
 st.metric("Click rate", f"{click_rate:.2%}")
 st.metric("CTR (Click/Open)", f"{ctr:.2%}")
-st.metric("Buyer rate (Buy/Delivery)", f"{buyer_rate:.2%}")
 
-df["buyer"].value_counts()
-df["click_ts"].notna().sum()
-df[df["buyer"].astype(str).str.lower()=="buyer"].shape
+st.markdown("### 💰 Monetization")
+st.metric("Buyer rate (Buy/Delivery)", f"{buyer_rate:.2%}")
+st.metric("Buyer per click", f"{buyer_per_click:.2%}")
 
 # -------------------------
 # 📊 BREAKDOWNS (РОЗРІЗИ)
