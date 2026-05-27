@@ -20,56 +20,45 @@ if uploaded_file is not None:
 
     st.success("File uploaded successfully!")
 
-    # 🔍 basic info
-    st.subheader("Dataset Info")
-    st.write("Rows:", df.shape[0])
-    st.write("Columns:", df.shape[1])
+    st.header("📊 Monitoring")
 
-    st.subheader("Column names")
-    st.write(df.columns.tolist())
+df["date"] = pd.to_datetime(df["date"], errors="coerce")
 
-    # 👀 preview
-    st.subheader("Preview")
-    st.dataframe(df.head())
+# -------------------------
+# KPI
+# -------------------------
+st.subheader("Key Metrics")
 
-st.subheader("👥 Buyer distribution")
+total_users = len(df)
+buyers = (df["buyer"].astype(str).str.lower() == "buyer").sum()
+buyer_rate = buyers / total_users if total_users > 0 else 0
 
-dist = df["buyer"].astype(str).value_counts()
+col1, col2, col3 = st.columns(3)
 
-st.bar_chart(dist)
+col1.metric("Users", total_users)
+col2.metric("Buyers", int(buyers))
+col3.metric("Buyer rate", f"{buyer_rate:.2%}")
 
-st.subheader("📊 Key Metrics")
+# -------------------------
+# Daily trends (core)
+# -------------------------
+st.subheader("📈 Trends over time")
 
-if "buyer" in df.columns:
+daily = df.groupby("date").agg(
+    users=("user_id", "count"),
+    buyers=("buyer", lambda x: (x.astype(str).str.lower() == "buyer").sum())
+).reset_index()
 
-    total_users = len(df)
+daily["buyer_rate"] = daily["buyers"] / daily["users"]
 
-    # 🧠 нормалізація категорій
-    buyers = (df["buyer"].astype(str).str.strip().str.lower() == "buyer").sum()
-    not_buyers = (df["buyer"].astype(str).str.strip().str.lower() == "not buyer").sum()
+st.line_chart(daily.set_index("date")[["users", "buyer_rate"]])
 
-    conversion_rate = buyers / total_users if total_users > 0 else 0
+# -------------------------
+# simple anomaly detection
+# -------------------------
+st.subheader("⚠️ Anomalies")
 
-    col1, col2, col3 = st.columns(3)
+daily["ma7"] = daily["buyer_rate"].rolling(7).mean()
+daily["anomaly"] = daily["buyer_rate"] < daily["ma7"] * 0.9
 
-    col1.metric("Total users", total_users)
-    col2.metric("Buyers", int(buyers))
-    col3.metric("Conversion rate", f"{conversion_rate:.2%}")
-
-if "date" in df.columns:
-    st.subheader("📈 Daily volume")
-
-    df["date"] = pd.to_datetime(df["date"], errors="coerce")
-
-    daily = df.groupby("date").size()
-
-    st.line_chart(daily)
-
-st.subheader("🧪 A/B Overview")
-
-group_cols = [col for col in df.columns if "Group" in col or "group" in col]
-
-if group_cols:
-    for col in group_cols:
-        st.write(f"Distribution for {col}")
-        st.bar_chart(df[col].value_counts())
+st.dataframe(daily[daily["anomaly"] == True])
