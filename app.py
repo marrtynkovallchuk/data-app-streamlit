@@ -34,17 +34,22 @@ if uploaded_file is not None:
 
 st.subheader("📊 Key Metrics")
 
-# базові перевірки колонок
 if "buyer" in df.columns:
-    total_users = len(df)
-    buyers = df["buyer"].sum() if df["buyer"].dtype != "O" else (df["buyer"] == 1).sum()
 
-    conversion_rate = buyers / total_users
+    total_users = len(df)
+
+    # 🧠 приводимо buyer до 0/1
+    if df["buyer"].dtype == "O":
+        buyers = (df["buyer"].astype(str).str.lower().isin(["1", "true", "yes", "y"])).sum()
+    else:
+        buyers = df["buyer"].fillna(0).astype(int).sum()
+
+    conversion_rate = buyers / total_users if total_users > 0 else 0
 
     col1, col2, col3 = st.columns(3)
 
     col1.metric("Total users", total_users)
-    col2.metric("Buyers", buyers)
+    col2.metric("Buyers", int(buyers))
     col3.metric("Conversion rate", f"{conversion_rate:.2%}")
 
 if "date" in df.columns:
