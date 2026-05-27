@@ -272,7 +272,7 @@ st.subheader("🧪 A/B Experiments Analysis")
 # -------------------------
 # CONFIG (важливо)
 # -------------------------
-PRIMARY_METRIC = "click"   # можна змінити на "buyer"
+PRIMARY_METRIC = "buyer"   # можна змінити на "buyer"
 SIGNIFICANCE_LEVEL = 0.05
 MIN_LIFT = 0.05  # 5% business threshold
 
