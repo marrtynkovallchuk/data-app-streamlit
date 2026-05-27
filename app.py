@@ -69,6 +69,10 @@ st.metric("Click rate", f"{click_rate:.2%}")
 st.metric("CTR (Click/Open)", f"{ctr:.2%}")
 st.metric("Buyer rate (Buy/Delivery)", f"{buyer_rate:.2%}")
 
+df["buyer"].value_counts()
+df["click_ts"].notna().sum()
+df[df["buyer"].astype(str).str.lower()=="buyer"].shape
+
 # -------------------------
 # 📊 BREAKDOWNS (РОЗРІЗИ)
 # -------------------------
