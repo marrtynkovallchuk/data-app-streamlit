@@ -1,456 +1,642 @@
-import streamlit as st
+
 import pandas as pd
+import numpy as np
 import csv
+import os
+from scipy.stats import chi2_contingency, norm
+import plotly.express as px
+import plotly.graph_objects as go
 
-st.title("📊 Data App - CSV Analyzer")
+# ─────────────────────────────────────────────────────────
+# CONFIG
+# ─────────────────────────────────────────────────────────
+st.set_page_config(page_title="Email Retention Dashboard", layout="wide")
+st.title("📧 Email Retention Dashboard")
 
-# 📥 Upload file
-uploaded_file = st.file_uploader("Upload your CSV file", type=["csv"])
+SIGNIFICANCE_LEVEL = 0.05
+MIN_LIFT           = 0.05   # мінімальний бізнес-ефект
+ANOMALY_THRESHOLD  = 0.20   # 20% зміна = критична
 
-if uploaded_file is not None:
 
-    # 📌 read CSV (auto-detect separator)
-    df = pd.read_csv(
-        uploaded_file,
-        sep=None,
-        engine="python",
-        quoting=csv.QUOTE_NONE,
-        on_bad_lines="skip"
-    )
+# ─────────────────────────────────────────────────────────
+# AI SUMMARY  (реальний API-call)
+# ─────────────────────────────────────────────────────────
+def get_ai_summary(prompt: str) -> str:
+    try:
+        import anthropic
+        api_key = (
+            st.secrets.get("ANTHROPIC_API_KEY", None)
+            or os.environ.get("ANTHROPIC_API_KEY", "")
+        )
+        if not api_key:
+            return (
+                "⚠️ ANTHROPIC_API_KEY не задано. "
+                "Додай його у .streamlit/secrets.toml або як змінну середовища."
+            )
+        client = anthropic.Anthropic(api_key=api_key)
+        msg = client.messages.create(
+            model="claude-sonnet-4-20250514",
+            max_tokens=600,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        return msg.content[0].text
+    except Exception as e:
+        return f"⚠️ Помилка AI: {e}"
 
-    st.success("File uploaded successfully!")
-    
-# Moninoring
-    
-    st.header("📊 Monitoring")
 
-df["date"] = pd.to_datetime(df["date"], errors="coerce")
+# ─────────────────────────────────────────────────────────
+# UPLOAD
+# ─────────────────────────────────────────────────────────
+uploaded_file = st.sidebar.file_uploader("📁 Завантажити CSV", type=["csv"])
 
-st.subheader("Key Metrics (Mailkeeper)")
+if uploaded_file is None:
+    st.info("Завантаж CSV-файл щоб почати.")
+    st.stop()
 
-# -------------------------
-# BASE
-# -------------------------
-deliveries = df["delivery_id"].nunique() if "delivery_id" in df.columns else len(df)
+df_raw = pd.read_csv(
+    uploaded_file,
+    sep=None,
+    engine="python",
+    quoting=csv.QUOTE_NONE,
+    on_bad_lines="skip",
+)
 
-opens = df["read_ts"].notna().sum()
-clicks = df["click_ts"].notna().sum()
-buyers = (df["buyer"].astype(str).str.lower() == "buyer").sum()
+# ─────────────────────────────────────────────────────────
+# PREPROCESSING
+# ─────────────────────────────────────────────────────────
+# нормалізуємо назви колонок до нижнього регістру
+df_raw.columns = df_raw.columns.str.strip().str.lower()
 
-# -------------------------
-# EMAIL FUNNEL
-# -------------------------
-open_rate = opens / deliveries if deliveries else 0
-click_rate = clicks / deliveries if deliveries else 0
-ctr = clicks / opens if opens else 0
-
-# -------------------------
-# MONETIZATION (SIMPLE)
-# -------------------------
-buyer_rate = buyers / deliveries if deliveries else 0
-
-# -------------------------
-# UI
-# -------------------------
-col1, col2, col3, col4 = st.columns(4)
-
-col1.metric("Deliveries", deliveries)
-col2.metric("Opens", int(opens))
-col3.metric("Clicks", int(clicks))
-col4.metric("Buyers", int(buyers))
-
-st.markdown("### 📩 Email Funnel")
-st.metric("Open rate", f"{open_rate:.2%}")
-st.metric("Click rate", f"{click_rate:.2%}")
-st.metric("CTR (Click/Open)", f"{ctr:.2%}")
-
-st.markdown("### 💰 Monetization")
-st.metric("Buyer rate (Buy/Delivery)", f"{buyer_rate:.2%}")
-
-# -------------------------
-# 📊 BREAKDOWNS (РОЗРІЗИ)
-# -------------------------
-
-st.markdown("### 🧩 Segments breakdown")
-
-# 1. Buyer split
-buyer_dist = df["buyer"].astype(str).str.lower().value_counts()
-st.write("Buyer distribution")
-st.bar_chart(buyer_dist)
-
-# 2. Group breakdown (якщо є)
-group_cols = [c for c in df.columns if "group" in c.lower()]
-
-for col in group_cols:
-    st.write(f"Distribution: {col}")
-    st.bar_chart(df[col].value_counts())
-
-# 3. Response breakdown (якщо є)
-if "response" in df.columns:
-    st.write("Response type distribution")
-    st.bar_chart(df["response"].value_counts())
-
-# -------------------------
-# DAILY TRENDS
-# -------------------------
-st.subheader("📈 Trends over time")
-
-daily = df.groupby("date").agg(
-    users=("user_id", "count"),
-    buyers=("buyer", lambda x: (x.astype(str).str.lower() == "buyer").sum()),
-    opens=("read_ts", lambda x: x.notna().sum()) if "read_ts" in df.columns else ("user_id", "count"),
-    clicks=("click_ts", lambda x: x.notna().sum()) if "click_ts" in df.columns else ("user_id", "count"),
-).reset_index()
-
-# rates
-daily["buyer_rate"] = daily["buyers"] / daily["users"]
-daily["open_rate"] = daily["opens"] / daily["users"]
-daily["click_rate"] = daily["clicks"] / daily["opens"].replace(0, 1)
-daily["conversion_rate"] = daily["buyers"] / daily["clicks"].replace(0, 1)
-
-# -------------------------
-# 📊 1. USERS
-# -------------------------
-st.write("Users over time")
-st.line_chart(daily.set_index("date")["users"])
-
-# -------------------------
-# 📊 2. BUYER RATE
-# -------------------------
-st.write("Buyer rate over time")
-st.line_chart(daily.set_index("date")["buyer_rate"])
-
-# -------------------------
-# 📊 3. OPEN RATE
-# -------------------------
-st.write("Open rate over time")
-st.line_chart(daily.set_index("date")["open_rate"])
-
-# -------------------------
-# 📊 4. CLICK RATE
-# -------------------------
-st.write("Click rate over time")
-st.line_chart(daily.set_index("date")["click_rate"])
-
-# -------------------------
-# 📊 5. CONVERSION RATE
-# -------------------------
-st.write("Conversion rate over time")
-st.line_chart(daily.set_index("date")["conversion_rate"])
-
-# -------------------------
-# SIMPLE ANOMALIES
-# -------------------------
-# -------------------------
-# MONTHLY ANOMALY DETECTION (FIXED)
-# -------------------------
-st.subheader("📊 Critical changes detection (Month-over-Month)")
+df = df_raw.copy()
 
 df["date"] = pd.to_datetime(df["date"], errors="coerce")
 df = df.dropna(subset=["date"])
 
-df["month"] = df["date"].dt.to_period("M")
+for col in ["read_ts", "click_ts", "send_ts", "delivery_ts",
+            "confirm_timestamp", "last_answer_timestamp"]:
+    if col in df.columns:
+        df[col] = pd.to_datetime(df[col], errors="coerce")
 
-monthly = df.groupby("month").agg(
-    deliveries=("delivery_id", "nunique"),
-    opens=("read_ts", lambda x: x.notna().sum()),
-    clicks=("click_ts", lambda x: x.notna().sum()),
-    buyers=("buyer", lambda x: (x.astype(str).str.lower() == "buyer").sum())
-).reset_index()
+for col in ["not_free_credits", "total_credits"]:
+    if col in df.columns:
+        df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0)
+    else:
+        df[col] = 0
 
-monthly = monthly.sort_values("month")
+# бінарні прапори
+df["is_buyer"]  = df["buyer"].astype(str).str.lower() == "buyer"
+df["is_open"]   = df["read_ts"].notna()   if "read_ts"   in df.columns else False
+df["is_click"]  = df["click_ts"].notna()  if "click_ts"  in df.columns else False
+# правильна метрика монетизації — платні кредити витрачені після кліку
+df["is_paid"]   = df["not_free_credits"] > 0
 
-# -------------------------
-# CONSISTENT RATES (ALL BASED ON DELIVERIES)
-# -------------------------
-monthly["open_rate"] = monthly["opens"] / monthly["deliveries"]
-monthly["click_rate"] = monthly["clicks"] / monthly["deliveries"]
-monthly["buyer_rate"] = monthly["buyers"] / monthly["deliveries"]
 
-# -------------------------
-# SAFETY CHECK
-# -------------------------
-if len(monthly) < 2:
-    st.warning("Not enough data for comparison")
+# ─────────────────────────────────────────────────────────
+# SIDEBAR FILTERS
+# ─────────────────────────────────────────────────────────
+min_d = df["date"].min().date()
+max_d = df["date"].max().date()
+
+date_range = st.sidebar.date_input(
+    "📅 Період",
+    value=(min_d, max_d),
+    min_value=min_d,
+    max_value=max_d,
+)
+if isinstance(date_range, (list, tuple)) and len(date_range) == 2:
+    s_date, e_date = date_range
+    df = df[(df["date"].dt.date >= s_date) & (df["date"].dt.date <= e_date)]
 else:
-    latest = monthly.iloc[-1]
-    prev = monthly.iloc[-2]
+    s_date, e_date = min_d, max_d
 
-    def render(metric, curr, prev):
-        if pd.isna(prev) or prev == 0:
-            return f"{metric}: no previous data"
+segment_filter = st.sidebar.selectbox(
+    "👤 Сегмент",
+    ["All", "Buyers only", "Non-buyers only"],
+)
+if segment_filter == "Buyers only":
+    df = df[df["is_buyer"]]
+elif segment_filter == "Non-buyers only":
+    df = df[~df["is_buyer"]]
 
-        change = (curr - prev) / prev
 
-        return f"""
-{metric}:
-- current: {curr:.4f}
-- previous: {prev:.4f}
-- change: {change:.1%}
-"""
+# ─────────────────────────────────────────────────────────
+# TABS
+# ─────────────────────────────────────────────────────────
+tab1, tab2, tab3 = st.tabs(["📊 Моніторинг", "🧪 A/B Аналіз", "👥 Сегменти"])
+# ═══════════════════════════════════════════════════════
+# TAB 1 — MONITORING
+# ═══════════════════════════════════════════════════════
+with tab1:
 
-    st.write(render("Deliveries", latest["deliveries"], prev["deliveries"]))
-    st.write(render("Open rate", latest["open_rate"], prev["open_rate"]))
-    st.write(render("Click rate", latest["click_rate"], prev["click_rate"]))
-    st.write(render("Buyer rate", latest["buyer_rate"], prev["buyer_rate"]))
+    # ── Топ-метрики ─────────────────────────────────────
+    deliveries   = df["delivery_id"].nunique() if "delivery_id" in df.columns else len(df)
+    opens        = int(df["is_open"].sum())
+    clicks       = int(df["is_click"].sum())
+    paid_events  = int(df["is_paid"].sum())
+    total_creds  = df["not_free_credits"].sum()
 
-st.subheader("🤖 AI-generated summary")
+    # Послідовна логіка воронки:
+    #   open_rate  = Opens  / Deliveries
+    #   ctr        = Clicks / Opens      (click-to-open rate)
+    #   paid_rate  = Paid   / Clicks     (конверсія в оплату після кліку)
+    open_rate = opens       / deliveries if deliveries else 0
+    ctr       = clicks      / opens      if opens      else 0
+    paid_rate = paid_events / clicks     if clicks     else 0
 
-deliveries_change = (latest["deliveries"] - prev["deliveries"]) / prev["deliveries"]
-open_change = (latest["open_rate"] - prev["open_rate"]) / prev["open_rate"]
-click_change = (latest["click_rate"] - prev["click_rate"]) / prev["click_rate"]
-buyer_change = (latest["buyer_rate"] - prev["buyer_rate"]) / prev["buyer_rate"]
+    st.subheader("📩 Email Funnel")
+    c1, c2, c3, c4, c5 = st.columns(5)
+    c1.metric("Deliveries",          f"{deliveries:,}")
+    c2.metric("Open rate",           f"{open_rate:.1%}",
+              help="Opens / Deliveries")
+    c3.metric("CTR (Click/Open)",    f"{ctr:.1%}",
+              help="Clicks / Opens")
+    c4.metric("Paid rate",           f"{paid_rate:.1%}",
+              help="Клікнувших, хто витратив платні кредити / Clicks")
+    c5.metric("Total paid credits",  f"{total_creds:,.0f}")
 
-summary = f"""
-📊 Period overview:
+    # ── Funnel bar chart ────────────────────────────────
+    funnel_df = pd.DataFrame({
+        "Stage":  ["Delivered", "Opened", "Clicked", "Paid"],
+        "Count":  [deliveries, opens, clicks, paid_events],
+    })
+    fig_funnel = px.bar(
+        funnel_df, x="Stage", y="Count",
+        title="Email Funnel",
+        text_auto=True, color="Stage",
+        color_discrete_sequence=px.colors.sequential.Blues_r,
+    )
+    st.plotly_chart(fig_funnel, use_container_width=True)
 
-- Email activity (deliveries) changed by {deliveries_change:.1%}, indicating a {'significant drop' if deliveries_change < -0.2 else 'stable trend'} in campaign volume.
+    # ── Daily trends ────────────────────────────────────
+    st.subheader("📈 Тренди в динаміці")
 
-- Open rate changed by {open_change:.1%}, showing {'lower engagement' if open_change < 0 else 'stable or improving engagement'} at the top of the funnel.
+    daily = (
+        df.groupby(df["date"].dt.date)
+        .agg(
+            deliveries      =("delivery_id",       "nunique"),
+            opens           =("is_open",            "sum"),
+            clicks          =("is_click",           "sum"),
+            paid            =("is_paid",            "sum"),
+            paid_credits    =("not_free_credits",   "sum"),
+        )
+        .reset_index()
+    )
+    daily.rename(columns={"date": "Date"}, inplace=True)
+    daily["open_rate"]   = daily["opens"]  / daily["deliveries"].replace(0, np.nan)
+    daily["ctr"]         = daily["clicks"] / daily["opens"].replace(0, np.nan)
+    daily["paid_rate"]   = daily["paid"]   / daily["clicks"].replace(0, np.nan)
 
-- Click rate changed by {click_change:.1%}, suggesting {'reduced content effectiveness' if click_change < 0 else 'stable user interest'} after email opens.
+    metric_labels = {
+        "open_rate":    "Open Rate",
+        "ctr":          "CTR (Click/Open)",
+        "paid_rate":    "Paid Rate",
+        "paid_credits": "Paid Credits",
+        "deliveries":   "Deliveries",
+    }
+    metric_choice = st.selectbox(
+        "Оберіть метрику",
+        list(metric_labels.keys()),
+        format_func=lambda k: metric_labels[k],
+    )
 
-- Buyer rate changed by {buyer_change:.1%}, indicating {'stable monetization quality' if abs(buyer_change) < 0.1 else 'changes in purchasing behavior'}.
+    daily_clean = daily.dropna(subset=[metric_choice])
+    fig_trend = px.line(
+        daily_clean, x="Date", y=metric_choice,
+        title=f"{metric_labels[metric_choice]} over time",
+        markers=True,
+    )
 
-📌 Key insight:
-The main impact comes from the top of the funnel (deliveries and engagement), while monetization remains relatively stable.
-"""
+    # Лінія тренду
+    if len(daily_clean) > 2:
+        x_idx = np.arange(len(daily_clean))
+        y_arr = daily_clean[metric_choice].values
+        b, a  = np.polynomial.polynomial.polyfit(x_idx, y_arr, 1)
+        fig_trend.add_scatter(
+            x=daily_clean["Date"], y=a + b * x_idx,
+            mode="lines", name="Trend",
+            line=dict(dash="dash", color="red"),
+        )
+ # Аномалії (±2σ)
+    mean_v, std_v = daily_clean[metric_choice].mean(), daily_clean[metric_choice].std()
+    if std_v > 0:
+        anomalies = daily_clean[abs(daily_clean[metric_choice] - mean_v) > 2 * std_v]
+        if not anomalies.empty:
+            fig_trend.add_scatter(
+                x=anomalies["Date"], y=anomalies[metric_choice],
+                mode="markers", name="Anomaly ⚠️",
+                marker=dict(color="red", size=14, symbol="x"),
+            )
+    st.plotly_chart(fig_trend, use_container_width=True)
 
-st.info(summary)
+    # ── Month-over-month ────────────────────────────────
+    st.subheader("🚨 Critical Changes (Month-over-Month)")
 
-# -------------------------
-# A/B
-# -------------------------
+    df["month"] = df["date"].dt.to_period("M")
+    monthly = (
+        df.groupby("month")
+        .agg(
+            deliveries   =("delivery_id",     "nunique"),
+            opens        =("is_open",          "sum"),
+            clicks       =("is_click",         "sum"),
+            paid         =("is_paid",          "sum"),
+            paid_credits =("not_free_credits", "sum"),
+        )
+        .reset_index()
+        .sort_values("month")
+    )
+    monthly["open_rate"] = monthly["opens"]  / monthly["deliveries"].replace(0, np.nan)
+    monthly["ctr"]       = monthly["clicks"] / monthly["opens"].replace(0, np.nan)
+    monthly["paid_rate"] = monthly["paid"]   / monthly["clicks"].replace(0, np.nan)
 
-st.subheader("🧪 A/B Analysis")
+    if len(monthly) >= 2:
+        curr, prev = monthly.iloc[-1], monthly.iloc[-2]
 
-# -------------------------
-# detect group columns
-# -------------------------
-group_cols = [col for col in df.columns if "group" in col.lower()]
-
-if not group_cols:
-    st.warning("No A/B test groups found")
-else:
-    for group_col in group_cols:
-
-        st.markdown(f"### 📊 Analysis for {group_col}")
-
-        ab = df.groupby(group_col).agg(
-            deliveries=("delivery_id", "nunique"),
-            opens=("read_ts", lambda x: x.notna().sum()),
-            clicks=("click_ts", lambda x: x.notna().sum()),
-            buyers=("buyer", lambda x: (x.astype(str).str.lower() == "buyer").sum())
-        ).reset_index()
-
-        # -------------------------
-        # METRICS
-        # -------------------------
-        ab["open_rate"] = ab["opens"] / ab["deliveries"]
-        ab["click_rate"] = ab["clicks"] / ab["deliveries"]
-        ab["buyer_rate"] = ab["buyers"] / ab["deliveries"]
-
-        st.dataframe(ab)
-
-        # -------------------------
-        # VISUAL COMPARISON
-        # -------------------------
-        st.write("Open rate by group")
-        st.bar_chart(ab.set_index(group_col)["open_rate"])
-
-        st.write("Click rate by group")
-        st.bar_chart(ab.set_index(group_col)["click_rate"])
-
-        st.write("Buyer rate by group")
-        st.bar_chart(ab.set_index(group_col)["buyer_rate"])
-
-import numpy as np
-from scipy.stats import chi2_contingency
-
-st.subheader("🧪 A/B Experiments Analysis")
-
-# -------------------------
-# SETTINGS
-# -------------------------
-PRIMARY_METRIC = "buyer"   # "click" або "buyer"
-SIGNIFICANCE_LEVEL = 0.05
-MIN_LIFT = 0.05  # 5%
-
-# -------------------------
-# FORMAT P-VALUE
-# -------------------------
-def format_p_value(p):
-    if p < 0.0001:
-        return "< 0.0001"
-    return f"{p:.4f}"
-
-# -------------------------
-# DETECT EXPERIMENTS
-# -------------------------
-group_cols = [col for col in df.columns if "group" in col.lower()]
-
-for col in group_cols:
-
-    st.markdown(f"### 📊 {col}")
-
-    # беремо тільки rows де є група
-    df_g = df.dropna(subset=[col])
-
-    # -------------------------
-    # AGGREGATION
-    # -------------------------
-    ab = df_g.groupby(col).agg(
-        deliveries=("delivery_id", "nunique"),
-        opens=("read_ts", lambda x: x.notna().sum()),
-        clicks=("click_ts", lambda x: x.notna().sum()),
-        buyers=("buyer", lambda x: (x.astype(str).str.lower() == "buyer").sum())
-    ).reset_index()
-
-    # має бути мінімум 2 групи
-    if ab.shape[0] < 2:
-        st.warning("Not enough groups for A/B comparison")
-        continue
-
-    # -------------------------
-    # RATES
-    # -------------------------
-    ab["open_rate"] = ab["opens"] / ab["deliveries"]
-    ab["click_rate"] = ab["clicks"] / ab["deliveries"]
-    ab["buyer_rate"] = ab["buyers"] / ab["deliveries"]
-
-    st.dataframe(ab)
-
-    # -------------------------
-    # CONTROL / TEST
-    # -------------------------
-    g1 = ab.iloc[0]
-    g2 = ab.iloc[1]
-
-    # -------------------------
-    # CLICK SIGNIFICANCE
-    # -------------------------
-    click_table = np.array([
-        [g1["clicks"], g1["deliveries"] - g1["clicks"]],
-        [g2["clicks"], g2["deliveries"] - g2["clicks"]],
-    ])
-
-    _, p_click, _, _ = chi2_contingency(click_table)
-
-    # -------------------------
-    # BUYER SIGNIFICANCE
-    # -------------------------
-    buyer_table = np.array([
-        [g1["buyers"], g1["deliveries"] - g1["buyers"]],
-        [g2["buyers"], g2["deliveries"] - g2["buyers"]],
-    ])
-
-    _, p_buyer, _, _ = chi2_contingency(buyer_table)
-
-    # -------------------------
-    # UPLIFTS
-    # -------------------------
-    click_rate_g1 = g1["clicks"] / g1["deliveries"]
-    click_rate_g2 = g2["clicks"] / g2["deliveries"]
-
-    buyer_rate_g1 = g1["buyers"] / g1["deliveries"]
-    buyer_rate_g2 = g2["buyers"] / g2["deliveries"]
-
-    click_uplift = (click_rate_g2 / click_rate_g1) - 1
-    buyer_uplift = (buyer_rate_g2 / buyer_rate_g1) - 1
-
-    # -------------------------
-    # OUTPUT
-    # -------------------------
-    st.write(f"📊 Click rate p-value: {format_p_value(p_click)}")
-    st.write(f"💰 Buyer rate p-value: {format_p_value(p_buyer)}")
-
-    st.write(f"📈 Click uplift: {click_uplift:.2%}")
-    st.write(f"💰 Buyer uplift: {buyer_uplift:.2%}")
-
-    # -------------------------
-    # PRIMARY METRIC
-    # -------------------------
-    if PRIMARY_METRIC == "click":
-        primary_p = p_click
-        primary_uplift = click_uplift
+        mom_cols = st.columns(4)
+        for i, (key, label) in enumerate([
+            ("open_rate",   "Open Rate"),
+            ("ctr",         "CTR"),
+            ("paid_rate",   "Paid Rate"),
+            ("deliveries",  "Deliveries"),
+        ]):
+            c_val = curr[key]
+            p_val = prev[key]
+            if pd.notna(p_val) and p_val > 0:
+                change = (c_val - p_val) / p_val
+                fmt    = f"{c_val:.1%}" if key != "deliveries" else f"{int(c_val):,}"
+                mom_cols[i].metric(label, fmt, f"{change:+.1%}")
+                if abs(change) > ANOMALY_THRESHOLD:
+                    mom_cols[i].error(f"⚠️ Критична зміна: {change:+.1%}")
     else:
-        primary_p = p_buyer
-        primary_uplift = buyer_uplift
+        st.warning("Недостатньо даних для MoM-порівняння.")
 
-    # -------------------------
-    # GUARDRAIL
-    # -------------------------
-    guardrail_ok = buyer_uplift >= -0.01
-
-    # -------------------------
-    # DECISION
-    # -------------------------
-    if (
-        primary_p < SIGNIFICANCE_LEVEL
-        and primary_uplift > MIN_LIFT
-        and guardrail_ok
-    ):
-        st.success(
-            "🚀 Rollout recommended "
-            "(significant + meaningful uplift)"
+    # ── Response type breakdown ─────────────────────────
+    if "response" in df.columns:
+        st.subheader("📬 Ефективність по типу повідомлення")
+        resp_agg = (
+            df.groupby("response")
+            .agg(
+                deliveries   =("delivery_id",     "nunique"),
+                opens        =("is_open",          "sum"),
+                clicks       =("is_click",         "sum"),
+                paid         =("is_paid",          "sum"),
+                paid_credits =("not_free_credits", "sum"),
+            )
+            .reset_index()
+        )
+        resp_agg["open_rate"] = resp_agg["opens"]  / resp_agg["deliveries"].replace(0, np.nan)
+        resp_agg["ctr"]       = resp_agg["clicks"] / resp_agg["opens"].replace(0, np.nan)
+        resp_agg["paid_rate"] = resp_agg["paid"]   / resp_agg["clicks"].replace(0, np.nan)
+        resp_agg["avg_credits"] = resp_agg["paid_credits"] / resp_agg["clicks"].replace(0, np.nan)
+        st.dataframe(
+            resp_agg.style.format({
+                "open_rate": "{:.1%}", "ctr": "{:.1%}",
+                "paid_rate": "{:.1%}", "avg_credits": "{:.1f}",
+                "paid_credits": "{:,.0f}",
+            }),
+            use_container_width=True,
+        )
+ # ── Rule breakdown ──────────────────────────────────
+    rule_col = next((c for c in df.columns if c.lower() == "rule"), None)
+    if rule_col:
+        st.subheader("📋 Ефективність по Rule (сегмент відправки)")
+        rule_agg = (
+            df.groupby(rule_col)
+            .agg(
+                deliveries   =("delivery_id",     "nunique"),
+                opens        =("is_open",          "sum"),
+                clicks       =("is_click",         "sum"),
+                paid         =("is_paid",          "sum"),
+                paid_credits =("not_free_credits", "sum"),
+            )
+            .reset_index()
+        )
+        rule_agg["open_rate"]   = rule_agg["opens"]  / rule_agg["deliveries"].replace(0, np.nan)
+        rule_agg["ctr"]         = rule_agg["clicks"] / rule_agg["opens"].replace(0, np.nan)
+        rule_agg["paid_rate"]   = rule_agg["paid"]   / rule_agg["clicks"].replace(0, np.nan)
+        rule_agg["avg_credits"] = rule_agg["paid_credits"] / rule_agg["clicks"].replace(0, np.nan)
+        st.dataframe(
+            rule_agg.style.format({
+                "open_rate": "{:.1%}", "ctr": "{:.1%}",
+                "paid_rate": "{:.1%}", "avg_credits": "{:.1f}",
+            }),
+            use_container_width=True,
         )
 
-    elif primary_p < SIGNIFICANCE_LEVEL:
-        st.info(
-            "⚠️ Statistically significant "
-            "but business impact is limited"
-        )
+    # ── AI Summary ──────────────────────────────────────
+    st.subheader("🤖 AI-згенероване самарі")
+    if st.button("Згенерувати самарі", key="btn_monitoring_ai"):
+        with st.spinner("Генерую..."):
+            mom_open  = f"{(curr['open_rate']-prev['open_rate'])/prev['open_rate']:+.1%}" \
+                        if len(monthly) >= 2 and prev["open_rate"] > 0 else "N/A"
+            mom_ctr   = f"{(curr['ctr']-prev['ctr'])/prev['ctr']:+.1%}" \
+                        if len(monthly) >= 2 and prev["ctr"] > 0 else "N/A"
+            mom_paid  = f"{(curr['paid_rate']-prev['paid_rate'])/prev['paid_rate']:+.1%}" \
+                        if len(monthly) >= 2 and prev["paid_rate"] > 0 else "N/A"
 
+            prompt = f"""
+You are a data analyst for a premium dating app (credits-based monetization, US market).
+Analyze the email campaign metrics below and write a concise business summary (4-6 sentences).
+Focus on funnel drop-off points, monetization health, and what to investigate or test next.
+
+Period: {s_date} – {e_date}  |  Segment: {segment_filter}
+
+Funnel:
+- Deliveries: {deliveries:,}
+- Open rate: {open_rate:.1%}
+- CTR (Click/Open): {ctr:.1%}
+- Paid rate (paid credits after click / clicks): {paid_rate:.1%}
+- Total paid credits: {total_creds:,.0f}
+
+Month-over-month change (latest vs previous):
+- Open rate: {mom_open}
+- CTR: {mom_ctr}
+- Paid rate: {mom_paid}
+
+Reply in the same language the analyst would use (Ukrainian or English is fine).
+"""
+            st.info(get_ai_summary(prompt))
+
+
+# ═══════════════════════════════════════════════════════
+# TAB 2 — A/B ANALYSIS
+# ═══════════════════════════════════════════════════════
+with tab2:
+
+    group_cols = [c for c in df.columns if "group" in c.lower()]
+
+    if not group_cols:
+        st.warning("У даних не знайдено колонок з A/B тестами.")
     else:
-        st.warning(
-            "❌ No statistically significant effect detected"
+        selected_group = st.selectbox("Оберіть експеримент", group_cols)
+
+        df_g = df.dropna(subset=[selected_group])
+        vals = df_g[selected_group].unique()
+
+        # явно знаходимо control і test без залежності від порядку рядків
+        control_val = next((v for v in vals if str(v).lower() == "control"), None)
+        test_val    = next((v for v in vals if str(v).lower() == "test"),    None)
+
+        if control_val is None or test_val is None:
+            st.warning(
+                f"У колонці '{selected_group}' не знайдено значень 'Control'/'Test'. "
+                f"Знайдено: {list(vals)}"
+            )
+        else:
+            df_ctrl = df_g[df_g[selected_group] == control_val]
+            df_test = df_g[df_g[selected_group] == test_val]
+ def group_metrics(gdf):
+                d     = gdf["delivery_id"].nunique() if "delivery_id" in gdf.columns else len(gdf)
+                o     = int(gdf["is_open"].sum())
+                c     = int(gdf["is_click"].sum())
+                p     = int(gdf["is_paid"].sum())
+                creds = gdf["not_free_credits"].sum()
+                return dict(
+                    deliveries=d, opens=o, clicks=c, paid=p, credits=creds,
+                    open_rate = o / d if d else 0,
+                    ctr       = c / o if o else 0,
+                    paid_rate = p / c if c else 0,
+                    avg_creds = creds / c if c else 0,
+                )
+
+            ctrl = group_metrics(df_ctrl)
+            test = group_metrics(df_test)
+
+            # ── Порівняльна таблиця ─────────────────────
+            st.subheader("📊 Порівняння метрик")
+
+            cmp_df = pd.DataFrame({
+                "Metric":   ["Deliveries", "Open rate", "CTR (Click/Open)",
+                             "Paid rate", "Avg paid credits/click"],
+                "Control":  [
+                    f"{ctrl['deliveries']:,}",
+                    f"{ctrl['open_rate']:.2%}",
+                    f"{ctrl['ctr']:.2%}",
+                    f"{ctrl['paid_rate']:.2%}",
+                    f"{ctrl['avg_creds']:.1f}",
+                ],
+                "Test": [
+                    f"{test['deliveries']:,}",
+                    f"{test['open_rate']:.2%}",
+                    f"{test['ctr']:.2%}",
+                    f"{test['paid_rate']:.2%}",
+                    f"{test['avg_creds']:.1f}",
+                ],
+            })
+            st.dataframe(cmp_df, use_container_width=True)
+
+            # ── Visual bars ─────────────────────────────
+            bar_df = pd.DataFrame({
+                "Group":     ["Control", "Test"] * 3,
+                "Metric":    ["Open rate"] * 2 + ["CTR"] * 2 + ["Paid rate"] * 2,
+                "Value":     [
+                    ctrl["open_rate"], test["open_rate"],
+                    ctrl["ctr"],       test["ctr"],
+                    ctrl["paid_rate"], test["paid_rate"],
+                ],
+            })
+            fig_ab = px.bar(
+                bar_df, x="Metric", y="Value", color="Group",
+                barmode="group", text_auto=".2%",
+                title=f"Metrics: Control vs Test ({selected_group})",
+                color_discrete_map={"Control": "#636EFA", "Test": "#EF553B"},
+            )
+            fig_ab.update_yaxes(tickformat=".1%")
+            st.plotly_chart(fig_ab, use_container_width=True)
+
+            # ── Stat tests ──────────────────────────────
+            st.subheader("📐 Статистична значущість")
+
+            def chi2_with_ci(n1, k1, n2, k2, alpha=0.05):
+                """Chi-square + 95% CI для різниці пропорцій"""
+                p1 = k1 / n1 if n1 else 0
+                p2 = k2 / n2 if n2 else 0
+                table = np.array([[k1, n1 - k1], [k2, n2 - k2]])
+                if table.min() < 5:
+                    return p1, p2, None, None, None
+                _, p_val, _, _ = chi2_contingency(table)
+                se   = np.sqrt(p1*(1-p1)/n1 + p2*(1-p2)/n2)
+                z    = norm.ppf(1 - alpha/2)
+                diff = p2 - p1
+                ci   = (diff - z*se, diff + z*se)
+                uplift = (p2/p1 - 1) if p1 > 0 else None
+                return p1, p2, p_val, uplift, ci
+
+            r_open = chi2_with_ci(ctrl["deliveries"], ctrl["opens"],
+                                   test["deliveries"], test["opens"])
+            r_ctr  = chi2_with_ci(ctrl["opens"],       ctrl["clicks"],
+                                   test["opens"],       test["clicks"])
+            r_paid = chi2_with_ci(ctrl["clicks"],      ctrl["paid"],
+                                   test["clicks"],      test["paid"])
+ def sig_badge(p):
+                if p is None: return "⚠️ N/A (мало даних)"
+                if p < 0.01:  return f"✅ p={p:.4f} (highly significant)"
+                if p < 0.05:  return f"✅ p={p:.4f} (significant)"
+                return              f"❌ p={p:.4f} (not significant)"
+
+            def ci_str(ci):
+                if ci is None: return "N/A"
+                return f"[{ci[0]:+.2%}, {ci[1]:+.2%}]"
+
+            def upl_str(u):
+                return f"{u:+.1%}" if u is not None else "N/A"
+
+            stat_df = pd.DataFrame({
+                "Metric":       ["Open rate", "CTR", "Paid rate"],
+                "Control":      [f"{r_open[0]:.2%}", f"{r_ctr[0]:.2%}", f"{r_paid[0]:.2%}"],
+                "Test":         [f"{r_open[1]:.2%}", f"{r_ctr[1]:.2%}", f"{r_paid[1]:.2%}"],
+                "Uplift":       [upl_str(r_open[3]), upl_str(r_ctr[3]), upl_str(r_paid[3])],
+                "95% CI (diff)":[ci_str(r_open[4]),  ci_str(r_ctr[4]),  ci_str(r_paid[4])],
+                "Significance": [sig_badge(r_open[2]),sig_badge(r_ctr[2]),sig_badge(r_paid[2])],
+            })
+            st.dataframe(stat_df, use_container_width=True)
+
+            # ── Decision ────────────────────────────────
+            st.subheader("🏁 Рішення по тесту")
+
+            primary_sig    = r_paid[2] is not None and r_paid[2] < SIGNIFICANCE_LEVEL
+            primary_uplift = r_paid[3] if r_paid[3] is not None else 0
+            # Guardrail: CTR не повинен впасти більш ніж на 5%
+            # (CTR — окрема метрика від paid_rate, тому це справжній guardrail)
+            guardrail_ok   = r_ctr[3] is None or r_ctr[3] >= -0.05
+
+            if primary_sig and primary_uplift > MIN_LIFT and guardrail_ok:
+                st.success(
+                    "🚀 Рекомендуємо rollout — значущий приріст paid rate, "
+                    "guardrail (CTR) пройдено"
+                )
+            elif primary_sig and not guardrail_ok:
+                st.error(
+                    "🛑 Guardrail не пройдено — CTR впав суттєво. "
+                    "Rollout не рекомендується без додаткового аналізу"
+                )
+            elif primary_sig:
+                st.info(
+                    "⚠️ Статистично значущо, але приріст нижче бізнес-порогу (5%). "
+                    "Розглянь продовження тесту або перегляд гіпотези"
+                )
+            else:
+                st.warning(
+                    "❌ Немає значущого ефекту на paid rate. "
+                    "Rollout не рекомендується"
+                )
+
+            # ── AI Recommendation ───────────────────────
+            st.subheader("🤖 AI-рекомендація по тесту")
+            if st.button("Згенерувати рекомендацію", key=f"btn_ab_{selected_group}"):
+                with st.spinner("Генерую..."):
+                    prompt = f"""
+You are a senior data analyst for a premium dating app (credits-based, US market).
+Analyze this A/B test and write a concise recommendation (5-7 sentences).
+Cover: statistical validity, business impact on revenue (credits), what the pattern means, next steps.
+
+Experiment: {selected_group}
+Sample sizes: Control={ctrl['deliveries']:,}, Test={test['deliveries']:,}
+
+| Metric    | Control          | Test             | Uplift             | p-value         | Significant |
+|-----------|------------------|------------------|--------------------|-----------------|-------------|
+| Open rate | {r_open[0]:.2%} | {r_open[1]:.2%} | {upl_str(r_open[3])} | {f"{r_open[2]:.4f}" if r_open[2] else "N/A"} | {r_open[2] is not None and r_open[2] < 0.05} |
+| CTR       | {r_ctr[0]:.2%}  | {r_ctr[1]:.2%}  | {upl_str(r_ctr[3])}  | {f"{r_ctr[2]:.4f}"  if r_ctr[2]  else "N/A"} | {r_ctr[2]  is not None and r_ctr[2]  < 0.05} |
+| Paid rate | {r_paid[0]:.2%} | {r_paid[1]:.2%} | {upl_str(r_paid[3])} | {f"{r_paid[2]:.4f}" if r_paid[2] else "N/A"} | {r_paid[2] is not None and r_paid[2] < 0.05} |
+Avg paid credits: Control={ctrl['avg_creds']:.1f}, Test={test['avg_creds']:.1f}
+Guardrail (CTR not dropped): {"PASSED" if guardrail_ok else "FAILED"}
+Decision: {"Rollout" if primary_sig and primary_uplift > MIN_LIFT and guardrail_ok else "No rollout"}
+
+Reply in Ukrainian.
+"""
+                    st.info(get_ai_summary(prompt))
+
+
+# ═══════════════════════════════════════════════════════
+# TAB 3 — SEGMENTS
+# ═══════════════════════════════════════════════════════
+with tab3:
+
+    st.subheader("👥 Buyers vs Non-buyers")
+
+    seg_agg = (
+        df.groupby("is_buyer")
+        .agg(
+            deliveries   =("delivery_id",     "nunique"),
+            opens        =("is_open",          "sum"),
+            clicks       =("is_click",         "sum"),
+            paid         =("is_paid",          "sum"),
+            total_credits=("not_free_credits", "sum"),
         )
+        .reset_index()
+    )
+    seg_agg["label"]       = seg_agg["is_buyer"].map({True: "Buyers", False: "Non-buyers"})
+    seg_agg["open_rate"]   = seg_agg["opens"]  / seg_agg["deliveries"].replace(0, np.nan)
+    seg_agg["ctr"]         = seg_agg["clicks"] / seg_agg["opens"].replace(0, np.nan)
+    seg_agg["paid_rate"]   = seg_agg["paid"]   / seg_agg["clicks"].replace(0, np.nan)
+    seg_agg["avg_credits"] = seg_agg["total_credits"] / seg_agg["clicks"].replace(0, np.nan)
 
-    # -------------------------
-    # AI SUMMARY
-    # -------------------------
-    st.subheader("🤖 AI-generated recommendation")
+    display_cols = ["label", "deliveries", "open_rate", "ctr",
+                    "paid_rate", "avg_credits", "total_credits"]
+    st.dataframe(
+        seg_agg[display_cols].style.format({
+            "open_rate":     "{:.1%}",
+            "ctr":           "{:.1%}",
+            "paid_rate":     "{:.1%}",
+            "avg_credits":   "{:.1f}",
+            "total_credits": "{:,.0f}",
+            "deliveries":    "{:,}",
+        }),
+        use_container_width=True,
+    )
 
-    if primary_p < SIGNIFICANCE_LEVEL and primary_uplift > MIN_LIFT:
+    # Grouped bar — segments
+    seg_bar = seg_agg.melt(
+        id_vars="label",
+        value_vars=["open_rate", "ctr", "paid_rate"],
+        var_name="Metric", value_name="Value",
+    )
+    fig_seg = px.bar(
+        seg_bar, x="Metric", y="Value", color="label",
+        barmode="group", text_auto=".1%",
+        title="Funnel метрики: Buyers vs Non-buyers",
+        color_discrete_map={"Buyers": "#00CC96", "Non-buyers": "#AB63FA"},
+    )
+    fig_seg.update_yaxes(tickformat=".0%")
+    st.plotly_chart(fig_seg, use_container_width=True)
 
-        summary = f"""
-The test demonstrates a statistically significant improvement in the primary metric.
+    # ── Trend by segment ───────────────────────────────
+    st.subheader("📈 Тренди по сегменту")
 
-Key observations:
-- Click uplift: {click_uplift:.2%}
-- Buyer uplift: {buyer_uplift:.2%}
-- Statistical significance confirmed (p-value {format_p_value(primary_p)})
+    daily_seg = (
+        df.groupby([df["date"].dt.date, "is_buyer"])
+        .agg(
+            open_rate  =("is_open",  "mean"),
+            ctr        =("is_click", "mean"),
+            paid_rate  =("is_paid",  "mean"),
+        )
+        .reset_index()
+    )
+    daily_seg["Segment"] = daily_seg["is_buyer"].map({True: "Buyers", False: "Non-buyers"})
 
-Recommendation:
-Rollout is recommended, as the experiment shows meaningful positive impact without negative monetization signals.
-"""
-
-    elif primary_p < SIGNIFICANCE_LEVEL:
-
-        summary = f"""
-The experiment reached statistical significance, however the observed uplift remains relatively small.
-
-Key observations:
-- Click uplift: {click_uplift:.2%}
-- Buyer uplift: {buyer_uplift:.2%}
-- Statistical significance confirmed (p-value {format_p_value(primary_p)})
-
-Recommendation:
-Further monitoring is recommended before full rollout, since business impact appears limited.
-"""
-
+    seg_metric = st.selectbox(
+        "Метрика по сегменту",
+        ["open_rate", "ctr", "paid_rate"],
+        format_func=lambda k: {"open_rate": "Open Rate",
+                               "ctr": "CTR", "paid_rate": "Paid Rate"}[k],
+    )
+    fig_seg_trend = px.line(
+        daily_seg, x="date", y=seg_metric, color="Segment",
+        title=f"{seg_metric} по сегменту",
+        color_discrete_map={"Buyers": "#00CC96", "Non-buyers": "#AB63FA"},
+    )
+    st.plotly_chart(fig_seg_trend, use_container_width=True)
+ # ── Credits distribution ───────────────────────────
+    st.subheader("💰 Розподіл paid credits по сегменту")
+    cred_df = df[df["not_free_credits"] > 0]
+    if not cred_df.empty:
+        cred_df = cred_df.copy()
+        cred_df["Segment"] = cred_df["is_buyer"].map({True: "Buyers", False: "Non-buyers"})
+        fig_creds = px.histogram(
+            cred_df, x="not_free_credits", color="Segment",
+            nbins=50, barmode="overlay", opacity=0.7,
+            title="Розподіл paid credits (після кліку з email)",
+            color_discrete_map={"Buyers": "#00CC96", "Non-buyers": "#AB63FA"},
+        )
+        st.plotly_chart(fig_creds, use_container_width=True)
     else:
-
-        summary = f"""
-The experiment did not produce statistically significant improvements.
-
-Key observations:
-- Click uplift: {click_uplift:.2%}
-- Buyer uplift: {buyer_uplift:.2%}
-- No statistically significant effect detected.
-
-Recommendation:
-No rollout is recommended at the current stage. Additional iterations or hypothesis changes may be required.
-"""
-
-    st.info(summary)
+        st.info("Немає записів з paid credits > 0 у вибраному фільтрі.")
