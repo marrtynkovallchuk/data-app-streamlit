@@ -55,17 +55,33 @@ st.subheader("📈 Trends over time")
 daily = df.groupby("date").agg(
     users=("user_id", "count"),
     buyers=("buyer", lambda x: (x.astype(str).str.lower() == "buyer").sum()),
+    opens=("read_ts", lambda x: x.notna().sum()) if "read_ts" in df.columns else ("user_id", "count"),
+    clicks=("click_ts", lambda x: x.notna().sum()) if "click_ts" in df.columns else ("user_id", "count"),
 ).reset_index()
 
+# базові rates
 daily["buyer_rate"] = daily["buyers"] / daily["users"]
+daily["open_rate"] = daily["opens"] / daily["users"]
+daily["click_rate"] = daily["clicks"] / daily["opens"].replace(0, 1)
+daily["conversion_rate"] = daily["buyers"] / daily["clicks"].replace(0, 1)
 
 # 📊 1. volume (users)
 st.write("Users over time")
 st.line_chart(daily.set_index("date")["users"])
 
-# 📊 2. rate
+# 📊 2. rate (buyer)
 st.write("Buyer rate over time")
 st.line_chart(daily.set_index("date")["buyer_rate"])
+
+# 📊 3. engagement rates (НОВЕ)
+st.write("Engagement rates over time")
+st.line_chart(
+    daily.set_index("date")[[
+        "open_rate",
+        "click_rate",
+        "conversion_rate"
+    ]]
+)
 
 # -------------------------
 # SIMPLE ANOMALIES
