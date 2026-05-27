@@ -55,15 +55,17 @@ st.subheader("📈 Trends over time")
 daily = df.groupby("date").agg(
     users=("user_id", "count"),
     buyers=("buyer", lambda x: (x.astype(str).str.lower() == "buyer").sum()),
-    open_rate=("read_ts", lambda x: x.notna().mean()),
-    click_rate=("click_ts", lambda x: x.notna().mean())
 ).reset_index()
 
 daily["buyer_rate"] = daily["buyers"] / daily["users"]
 
-st.line_chart(
-    daily.set_index("date")[["users", "buyer_rate", "open_rate", "click_rate"]]
-)
+# 📊 1. volume (users)
+st.write("Users over time")
+st.line_chart(daily.set_index("date")["users"])
+
+# 📊 2. rate
+st.write("Buyer rate over time")
+st.line_chart(daily.set_index("date")["buyer_rate"])
 
 # -------------------------
 # SIMPLE ANOMALIES
