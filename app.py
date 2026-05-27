@@ -21,7 +21,7 @@ if uploaded_file is not None:
 
     # 📈 quick example chart (якщо є date)
     if "date" in df.columns:
-        df["date"] = pd.to_datetime(df["date"], errors="coerce")
+        df = pd.read_csv(uploaded_file, sep=None, engine="python")
         chart_data = df.groupby("date").size()
         st.line_chart(chart_data)
 
