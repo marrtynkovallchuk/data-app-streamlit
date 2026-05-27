@@ -102,6 +102,16 @@ daily = df.groupby("date").agg(
     clicks=("click_ts", lambda x: x.notna().sum()) if "click_ts" in df.columns else ("user_id", "count"),
 ).reset_index()
 
+df["date"] = pd.to_datetime(df["date"], errors="coerce")
+
+monthly = df.groupby(df["date"].dt.to_period("M")).size()
+
+monthly
+
+df[df["date"].dt.month == 11].shape
+
+df.groupby(df["date"].dt.month).size()
+
 # rates
 daily["buyer_rate"] = daily["buyers"] / daily["users"]
 daily["open_rate"] = daily["opens"] / daily["users"]
