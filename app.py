@@ -142,7 +142,7 @@ st.line_chart(daily.set_index("date")["conversion_rate"])
 # SIMPLE ANOMALIES
 # -------------------------
 # -------------------------
-# MONTHLY ANOMALY DETECTION
+# MONTHLY ANOMALY DETECTION (FIXED)
 # -------------------------
 st.subheader("📊 Critical changes detection (Month-over-Month)")
 
@@ -160,27 +160,36 @@ monthly = df.groupby("month").agg(
 
 monthly = monthly.sort_values("month")
 
+# -------------------------
+# CONSISTENT RATES (ALL BASED ON DELIVERIES)
+# -------------------------
 monthly["open_rate"] = monthly["opens"] / monthly["deliveries"]
 monthly["click_rate"] = monthly["clicks"] / monthly["deliveries"]
 monthly["buyer_rate"] = monthly["buyers"] / monthly["deliveries"]
 
-latest = monthly.iloc[-1]
-prev = monthly.iloc[-2]
+# -------------------------
+# SAFETY CHECK
+# -------------------------
+if len(monthly) < 2:
+    st.warning("Not enough data for comparison")
+else:
+    latest = monthly.iloc[-1]
+    prev = monthly.iloc[-2]
 
-def render(metric, curr, prev):
-    if prev == 0 or pd.isna(prev):
-        return f"{metric}: no previous data"
+    def render(metric, curr, prev):
+        if pd.isna(prev) or prev == 0:
+            return f"{metric}: no previous data"
 
-    change = (curr - prev) / prev
+        change = (curr - prev) / prev
 
-    return f"""
+        return f"""
 {metric}:
-- current: {curr:.2f}
-- previous: {prev:.2f}
+- current: {curr:.4f}
+- previous: {prev:.4f}
 - change: {change:.1%}
 """
 
-st.write(render("Deliveries", latest["deliveries"], prev["deliveries"]))
-st.write(render("Open rate", latest["open_rate"], prev["open_rate"]))
-st.write(render("Click rate", latest["click_rate"], prev["click_rate"]))
-st.write(render("Buyer rate", latest["buyer_rate"], prev["buyer_rate"]))
+    st.write(render("Deliveries", latest["deliveries"], prev["deliveries"]))
+    st.write(render("Open rate", latest["open_rate"], prev["open_rate"]))
+    st.write(render("Click rate", latest["click_rate"], prev["click_rate"]))
+    st.write(render("Buyer rate", latest["buyer_rate"], prev["buyer_rate"]))
