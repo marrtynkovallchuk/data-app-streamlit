@@ -267,29 +267,44 @@ else:
 import numpy as np
 from scipy.stats import chi2_contingency
 
-st.subheader("📐 Statistical significance")
+st.subheader("🧪 A/B Analysis (Experiments 1–4)")
 
 group_cols = [col for col in df.columns if "group" in col.lower()]
 
-for group_col in group_cols:
+for col in group_cols:
 
-    st.markdown(f"### 🧪 {group_col}")
+    st.markdown(f"### 📊 {col}")
 
-    ab = df.groupby(group_col).agg(
+    df_g = df.dropna(subset=[col])
+
+    ab = df_g.groupby(col).agg(
         deliveries=("delivery_id", "nunique"),
+        opens=("read_ts", lambda x: x.notna().sum()),
         clicks=("click_ts", lambda x: x.notna().sum()),
         buyers=("buyer", lambda x: (x.astype(str).str.lower() == "buyer").sum())
     ).reset_index()
 
-    # беремо 2 основні групи (A/B logic)
     if ab.shape[0] < 2:
+        st.warning("Not enough groups for comparison")
         continue
 
+    # -------------------------
+    # assume first two are Control / Test
+    # -------------------------
     g1 = ab.iloc[0]
     g2 = ab.iloc[1]
 
     # -------------------------
-    # click-through matrix
+    # METRICS
+    # -------------------------
+    ab["open_rate"] = ab["opens"] / ab["deliveries"]
+    ab["click_rate"] = ab["clicks"] / ab["deliveries"]
+    ab["buyer_rate"] = ab["buyers"] / ab["deliveries"]
+
+    st.dataframe(ab)
+
+    # -------------------------
+    # CHI-SQUARE TEST (clicks)
     # -------------------------
     click_table = np.array([
         [g1["clicks"], g1["deliveries"] - g1["clicks"]],
@@ -298,9 +313,6 @@ for group_col in group_cols:
 
     chi2, p_click, _, _ = chi2_contingency(click_table)
 
-    # -------------------------
-    # buyer matrix
-    # -------------------------
     buyer_table = np.array([
         [g1["buyers"], g1["deliveries"] - g1["buyers"]],
         [g2["buyers"], g2["deliveries"] - g2["buyers"]],
@@ -309,25 +321,26 @@ for group_col in group_cols:
     chi2_b, p_buyer, _, _ = chi2_contingency(buyer_table)
 
     # -------------------------
-    # METRICS
+    # EFFECT SIZE (uplift)
     # -------------------------
-    ab["click_rate"] = ab["clicks"] / ab["deliveries"]
-    ab["buyer_rate"] = ab["buyers"] / ab["deliveries"]
-
-    st.dataframe(ab)
+    click_uplift = (g2["clicks"] / g2["deliveries"]) / (g1["clicks"] / g1["deliveries"]) - 1
+    buyer_uplift = (g2["buyers"] / g2["deliveries"]) / (g1["buyers"] / g1["deliveries"]) - 1
 
     # -------------------------
-    # SIGNIFICANCE OUTPUT
+    # OUTPUT
     # -------------------------
     st.write(f"📊 Click rate p-value: {p_click:.4f}")
     st.write(f"💰 Buyer rate p-value: {p_buyer:.4f}")
 
-    if p_click < 0.05:
-        st.success("Click rate difference is statistically significant")
-    else:
-        st.info("Click rate difference is NOT significant")
+    st.write(f"📈 Click uplift: {click_uplift:.2%}")
+    st.write(f"💰 Buyer uplift: {buyer_uplift:.2%}")
 
-    if p_buyer < 0.05:
-        st.success("Buyer rate difference is statistically significant")
+    # -------------------------
+    # BUSINESS DECISION
+    # -------------------------
+    if p_click < 0.05 and click_uplift > 0.02:
+        st.success("🚀 Recommend rollout (click improvement is significant + meaningful)")
+    elif p_click < 0.05:
+        st.info("⚠️ Statistically significant but low practical impact")
     else:
-        st.info("Buyer rate difference is NOT significant")
+        st.warning("❌ No significant effect detected")
