@@ -263,3 +263,71 @@ else:
 
         st.write("Buyer rate by group")
         st.bar_chart(ab.set_index(group_col)["buyer_rate"])
+
+import numpy as np
+from scipy.stats import chi2_contingency
+
+st.subheader("📐 Statistical significance")
+
+group_cols = [col for col in df.columns if "group" in col.lower()]
+
+for group_col in group_cols:
+
+    st.markdown(f"### 🧪 {group_col}")
+
+    ab = df.groupby(group_col).agg(
+        deliveries=("delivery_id", "nunique"),
+        clicks=("click_ts", lambda x: x.notna().sum()),
+        buyers=("buyer", lambda x: (x.astype(str).str.lower() == "buyer").sum())
+    ).reset_index()
+
+    # беремо 2 основні групи (A/B logic)
+    if ab.shape[0] < 2:
+        continue
+
+    g1 = ab.iloc[0]
+    g2 = ab.iloc[1]
+
+    # -------------------------
+    # click-through matrix
+    # -------------------------
+    click_table = np.array([
+        [g1["clicks"], g1["deliveries"] - g1["clicks"]],
+        [g2["clicks"], g2["deliveries"] - g2["clicks"]],
+    ])
+
+    chi2, p_click, _, _ = chi2_contingency(click_table)
+
+    # -------------------------
+    # buyer matrix
+    # -------------------------
+    buyer_table = np.array([
+        [g1["buyers"], g1["deliveries"] - g1["buyers"]],
+        [g2["buyers"], g2["deliveries"] - g2["buyers"]],
+    ])
+
+    chi2_b, p_buyer, _, _ = chi2_contingency(buyer_table)
+
+    # -------------------------
+    # METRICS
+    # -------------------------
+    ab["click_rate"] = ab["clicks"] / ab["deliveries"]
+    ab["buyer_rate"] = ab["buyers"] / ab["deliveries"]
+
+    st.dataframe(ab)
+
+    # -------------------------
+    # SIGNIFICANCE OUTPUT
+    # -------------------------
+    st.write(f"📊 Click rate p-value: {p_click:.4f}")
+    st.write(f"💰 Buyer rate p-value: {p_buyer:.4f}")
+
+    if p_click < 0.05:
+        st.success("Click rate difference is statistically significant")
+    else:
+        st.info("Click rate difference is NOT significant")
+
+    if p_buyer < 0.05:
+        st.success("Buyer rate difference is statistically significant")
+    else:
+        st.info("Buyer rate difference is NOT significant")
