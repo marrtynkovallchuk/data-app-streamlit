@@ -405,3 +405,52 @@ for col in group_cols:
         st.warning(
             "❌ No statistically significant effect detected"
         )
+
+    # -------------------------
+    # AI SUMMARY
+    # -------------------------
+    st.subheader("🤖 AI-generated recommendation")
+
+    if primary_p < SIGNIFICANCE_LEVEL and primary_uplift > MIN_LIFT:
+
+        summary = f"""
+The test demonstrates a statistically significant improvement in the primary metric.
+
+Key observations:
+- Click uplift: {click_uplift:.2%}
+- Buyer uplift: {buyer_uplift:.2%}
+- Statistical significance confirmed (p-value {format_p_value(primary_p)})
+
+Recommendation:
+Rollout is recommended, as the experiment shows meaningful positive impact without negative monetization signals.
+"""
+
+    elif primary_p < SIGNIFICANCE_LEVEL:
+
+        summary = f"""
+The experiment reached statistical significance, however the observed uplift remains relatively small.
+
+Key observations:
+- Click uplift: {click_uplift:.2%}
+- Buyer uplift: {buyer_uplift:.2%}
+- Statistical significance confirmed (p-value {format_p_value(primary_p)})
+
+Recommendation:
+Further monitoring is recommended before full rollout, since business impact appears limited.
+"""
+
+    else:
+
+        summary = f"""
+The experiment did not produce statistically significant improvements.
+
+Key observations:
+- Click uplift: {click_uplift:.2%}
+- Buyer uplift: {buyer_uplift:.2%}
+- No statistically significant effect detected.
+
+Recommendation:
+No rollout is recommended at the current stage. Additional iterations or hypothesis changes may be required.
+"""
+
+    st.info(summary)
