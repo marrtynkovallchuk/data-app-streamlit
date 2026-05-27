@@ -141,34 +141,40 @@ st.line_chart(daily.set_index("date")["conversion_rate"])
 # -------------------------
 # SIMPLE ANOMALIES
 # -------------------------
-st.subheader("📊 Critical changes detection")
+# -------------------------
+# MONTHLY ANOMALY DETECTION
+# -------------------------
+st.subheader("📊 Critical changes detection (Month-over-Month)")
 
 df["date"] = pd.to_datetime(df["date"], errors="coerce")
+df = df.dropna(subset=["date"])
 
-daily = df.groupby("date").agg(
+df["month"] = df["date"].dt.to_period("M")
+
+monthly = df.groupby("month").agg(
     deliveries=("delivery_id", "nunique"),
     opens=("read_ts", lambda x: x.notna().sum()),
     clicks=("click_ts", lambda x: x.notna().sum()),
     buyers=("buyer", lambda x: (x.astype(str).str.lower() == "buyer").sum())
 ).reset_index()
 
-daily = daily.sort_values("date")
+monthly = monthly.sort_values("month")
 
-daily["open_rate"] = daily["opens"] / daily["deliveries"]
-daily["click_rate"] = daily["clicks"] / daily["deliveries"]
-daily["buyer_rate"] = daily["buyers"] / daily["deliveries"]
+monthly["open_rate"] = monthly["opens"] / monthly["deliveries"]
+monthly["click_rate"] = monthly["clicks"] / monthly["deliveries"]
+monthly["buyer_rate"] = monthly["buyers"] / monthly["deliveries"]
 
-latest = daily.iloc[-1]
-prev = daily.iloc[-2]
+latest = monthly.iloc[-1]
+prev = monthly.iloc[-2]
 
-def render(metric_name, curr, prev):
-    if prev == 0:
-        return f"{metric_name}: no previous data"
+def render(metric, curr, prev):
+    if prev == 0 or pd.isna(prev):
+        return f"{metric}: no previous data"
 
     change = (curr - prev) / prev
 
     return f"""
-{metric_name}:
+{metric}:
 - current: {curr:.2f}
 - previous: {prev:.2f}
 - change: {change:.1%}
