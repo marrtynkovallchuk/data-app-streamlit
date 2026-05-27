@@ -29,7 +29,7 @@ df["date"] = pd.to_datetime(df["date"], errors="coerce")
 st.subheader("Key Metrics")
 
 # -------------------------
-# USER LEVEL DATASET (core fix)
+# USER-LEVEL BASE
 # -------------------------
 user_df = df.copy()
 
@@ -50,14 +50,19 @@ opens = user_level["opened"].sum()
 clicks = user_level["clicked"].sum()
 
 # -------------------------
-# CORE METRICS (CONSISTENT DENOMINATORS)
+# SAFE METRICS (CONSISTENT)
 # -------------------------
-open_rate = opens / users if users > 0 else 0
-click_rate = clicks / users if users > 0 else 0
+open_rate = opens / users if users else 0
+click_rate = clicks / users if users else 0
 
-ctr_open = clicks / opens if opens > 0 else 0
-conversion_rate = buyers / users if users > 0 else 0
-conv_per_click = buyers / clicks if clicks > 0 else 0
+ctr_open = clicks / opens if opens else 0
+conversion_rate = buyers / users if users else 0
+conv_per_click = buyers / clicks if clicks else 0
+
+# -------------------------
+# SANITY CHECK (важливо!)
+# -------------------------
+st.caption(f"Sanity: opens={opens}, clicks={clicks}, users={users}")
 
 # -------------------------
 # UI
