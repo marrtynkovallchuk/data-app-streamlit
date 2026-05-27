@@ -102,15 +102,49 @@ daily = df.groupby("date").agg(
     clicks=("click_ts", lambda x: x.notna().sum()) if "click_ts" in df.columns else ("user_id", "count"),
 ).reset_index()
 
+import pandas as pd
+
 df["date"] = pd.to_datetime(df["date"], errors="coerce")
+df = df.dropna(subset=["date"])
 
-monthly = df.groupby(df["date"].dt.to_period("M")).size()
+df["month"] = df["date"].dt.to_period("M")
 
-monthly
+# -------------------------
+# 1. BASIC MONTHLY STATS
+# -------------------------
+monthly_stats = df.groupby("month").agg(
+    events=("user_id", "count"),
+    users=("user_id", "nunique"),
+    deliveries=("delivery_id", "nunique"),
+    opens=("read_ts", lambda x: x.notna().sum()),
+    clicks=("click_ts", lambda x: x.notna().sum()),
+    buyers=("buyer", lambda x: (x.astype(str).str.lower() == "buyer").sum())
+)
 
-df[df["date"].dt.month == 11].shape
+# -------------------------
+# 2. RATES
+# -------------------------
+monthly_stats["open_rate"] = monthly_stats["opens"] / monthly_stats["deliveries"]
+monthly_stats["click_rate"] = monthly_stats["clicks"] / monthly_stats["deliveries"]
+monthly_stats["buyer_rate"] = monthly_stats["buyers"] / monthly_stats["deliveries"]
 
-df.groupby(df["date"].dt.month).size()
+# -------------------------
+# 3. SHOW TABLE
+# -------------------------
+st.subheader("📊 Monthly diagnostics")
+st.dataframe(monthly_stats)
+
+# -------------------------
+# 4. QUICK VISUAL CHECK
+# -------------------------
+st.subheader("📈 Event volume over time")
+st.line_chart(monthly_stats["events"])
+
+st.subheader("👥 Users over time (nunique)")
+st.line_chart(monthly_stats["users"])
+
+st.subheader("📬 Deliveries over time")
+st.line_chart(monthly_stats["deliveries"])
 
 # rates
 daily["buyer_rate"] = daily["buyers"] / daily["users"]
