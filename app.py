@@ -34,6 +34,7 @@ st.subheader("Key Metrics")
 total_users = len(df)
 
 buyers = (df["buyer"].astype(str).str.lower() == "buyer").sum()
+not_buyers = (df["buyer"].astype(str).str.lower() == "not buyer").sum()
 
 open_rate = df["read_ts"].notna().mean()
 click_rate = df["click_ts"].notna().mean()
@@ -46,6 +47,29 @@ col1.metric("Users", total_users)
 col2.metric("Buyers", int(buyers))
 col3.metric("Open rate", f"{open_rate:.2%}")
 col4.metric("Click rate", f"{click_rate:.2%}")
+
+# -------------------------
+# 📊 BREAKDOWNS (РОЗРІЗИ)
+# -------------------------
+
+st.markdown("### 🧩 Segments breakdown")
+
+# 1. Buyer split
+buyer_dist = df["buyer"].astype(str).str.lower().value_counts()
+st.write("Buyer distribution")
+st.bar_chart(buyer_dist)
+
+# 2. Group breakdown (якщо є)
+group_cols = [c for c in df.columns if "group" in c.lower()]
+
+for col in group_cols:
+    st.write(f"Distribution: {col}")
+    st.bar_chart(df[col].value_counts())
+
+# 3. Response breakdown (якщо є)
+if "response" in df.columns:
+    st.write("Response type distribution")
+    st.bar_chart(df["response"].value_counts())
 
 # -------------------------
 # DAILY TRENDS
