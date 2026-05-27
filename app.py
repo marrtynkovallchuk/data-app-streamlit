@@ -19,42 +19,54 @@ if uploaded_file is not None:
     )
 
     st.success("File uploaded successfully!")
-
+    
+# Moninoring
+    
     st.header("📊 Monitoring")
 
 df["date"] = pd.to_datetime(df["date"], errors="coerce")
 
 # -------------------------
-# KPI
+# KPI BLOCK
 # -------------------------
 st.subheader("Key Metrics")
 
 total_users = len(df)
-buyers = (df["buyer"].astype(str).str.lower() == "buyer").sum()
-buyer_rate = buyers / total_users if total_users > 0 else 0
 
-col1, col2, col3 = st.columns(3)
+buyers = (df["buyer"].astype(str).str.lower() == "buyer").sum()
+
+open_rate = df["Read_ts"].notna().mean()
+click_rate = df["Click_ts"].notna().mean()
+
+conversion_rate = buyers / total_users if total_users > 0 else 0
+
+col1, col2, col3, col4 = st.columns(4)
 
 col1.metric("Users", total_users)
 col2.metric("Buyers", int(buyers))
-col3.metric("Buyer rate", f"{buyer_rate:.2%}")
+col3.metric("Open rate", f"{open_rate:.2%}")
+col4.metric("Click rate", f"{click_rate:.2%}")
 
 # -------------------------
-# Daily trends (core)
+# DAILY TRENDS
 # -------------------------
 st.subheader("📈 Trends over time")
 
 daily = df.groupby("date").agg(
     users=("user_id", "count"),
-    buyers=("buyer", lambda x: (x.astype(str).str.lower() == "buyer").sum())
+    buyers=("buyer", lambda x: (x.astype(str).str.lower() == "buyer").sum()),
+    open_rate=("Read_ts", lambda x: x.notna().mean()),
+    click_rate=("Click_ts", lambda x: x.notna().mean())
 ).reset_index()
 
 daily["buyer_rate"] = daily["buyers"] / daily["users"]
 
-st.line_chart(daily.set_index("date")[["users", "buyer_rate"]])
+st.line_chart(
+    daily.set_index("date")[["users", "buyer_rate", "open_rate", "click_rate"]]
+)
 
 # -------------------------
-# simple anomaly detection
+# SIMPLE ANOMALIES
 # -------------------------
 st.subheader("⚠️ Anomalies")
 
