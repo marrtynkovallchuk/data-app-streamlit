@@ -29,23 +29,43 @@ df["date"] = pd.to_datetime(df["date"], errors="coerce")
 # -------------------------
 # KPI BLOCK
 # -------------------------
+# -------------------------
+# KPI BLOCK (CORRECT VERSION)
+# -------------------------
 st.subheader("Key Metrics")
 
-total_users = len(df)
+import pandas as pd
 
-buyers = (df["buyer"].astype(str).str.lower() == "buyer").sum()
+# -------------------------
+# user-level aggregation (ВАЖЛИВО)
+# -------------------------
+user_df = df.copy()
 
-open_rate = df["read_ts"].notna().mean()
-click_rate = df["click_ts"].notna().mean()
+user_df["is_buyer"] = user_df["buyer"].astype(str).str.lower() == "buyer"
 
-ctor = df["click_ts"].notna().sum() / df["read_ts"].notna().sum() if df["read_ts"].notna().sum() > 0 else 0
+user_level = user_df.groupby("user_id").agg(
+    buyer=("is_buyer", "max"),
+    clicked=("click_ts", lambda x: x.notna().any()),
+    opened=("read_ts", lambda x: x.notna().any())
+).reset_index()
 
+# -------------------------
+# METRICS
+# -------------------------
+total_users = len(user_level)
+buyers = user_level["buyer"].sum()
+clicks = user_level["clicked"].sum()
+opens = user_level["opened"].sum()
+
+open_rate = opens / total_users if total_users > 0 else 0
+click_rate = clicks / total_users if total_users > 0 else 0
+
+conversion_per_click = buyers / clicks if clicks > 0 else 0
 conversion_rate = buyers / total_users if total_users > 0 else 0
 
-conversion_per_click = buyers / df["click_ts"].notna().sum() if df["click_ts"].notna().sum() > 0 else 0
-
-engagement_rate = df[["read_ts", "click_ts"]].notna().any(axis=1).mean()
-
+# -------------------------
+# UI
+# -------------------------
 col1, col2, col3, col4 = st.columns(4)
 
 col1.metric("Users", total_users)
@@ -53,11 +73,10 @@ col2.metric("Buyers", int(buyers))
 col3.metric("Open rate", f"{open_rate:.2%}")
 col4.metric("Click rate", f"{click_rate:.2%}")
 
-col5, col6, col7 = st.columns(3)
+col5, col6 = st.columns(2)
 
-col5.metric("CTOR", f"{ctor:.2%}")
+col5.metric("Conv rate", f"{conversion_rate:.2%}")
 col6.metric("Conv per click", f"{conversion_per_click:.2%}")
-col7.metric("Engagement", f"{engagement_rate:.2%}")
 
 # -------------------------
 # 📊 BREAKDOWNS (РОЗРІЗИ)
