@@ -217,3 +217,49 @@ The main impact comes from the top of the funnel (deliveries and engagement), wh
 """
 
 st.info(summary)
+
+# -------------------------
+# A/B
+# -------------------------
+
+st.subheader("🧪 A/B Analysis")
+
+# -------------------------
+# detect group columns
+# -------------------------
+group_cols = [col for col in df.columns if "group" in col.lower()]
+
+if not group_cols:
+    st.warning("No A/B test groups found")
+else:
+    for group_col in group_cols:
+
+        st.markdown(f"### 📊 Analysis for {group_col}")
+
+        ab = df.groupby(group_col).agg(
+            deliveries=("delivery_id", "nunique"),
+            opens=("read_ts", lambda x: x.notna().sum()),
+            clicks=("click_ts", lambda x: x.notna().sum()),
+            buyers=("buyer", lambda x: (x.astype(str).str.lower() == "buyer").sum())
+        ).reset_index()
+
+        # -------------------------
+        # METRICS
+        # -------------------------
+        ab["open_rate"] = ab["opens"] / ab["deliveries"]
+        ab["click_rate"] = ab["clicks"] / ab["deliveries"]
+        ab["buyer_rate"] = ab["buyers"] / ab["deliveries"]
+
+        st.dataframe(ab)
+
+        # -------------------------
+        # VISUAL COMPARISON
+        # -------------------------
+        st.write("Open rate by group")
+        st.bar_chart(ab.set_index(group_col)["open_rate"])
+
+        st.write("Click rate by group")
+        st.bar_chart(ab.set_index(group_col)["click_rate"])
+
+        st.write("Buyer rate by group")
+        st.bar_chart(ab.set_index(group_col)["buyer_rate"])
