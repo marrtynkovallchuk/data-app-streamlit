@@ -32,17 +32,21 @@ if uploaded_file is not None:
     st.subheader("Preview")
     st.dataframe(df.head())
 
+st.subheader("👥 Buyer distribution")
+
+dist = df["buyer"].astype(str).value_counts()
+
+st.bar_chart(dist)
+
 st.subheader("📊 Key Metrics")
 
 if "buyer" in df.columns:
 
     total_users = len(df)
 
-    # 🧠 приводимо buyer до 0/1
-    if df["buyer"].dtype == "O":
-        buyers = (df["buyer"].astype(str).str.lower().isin(["1", "true", "yes", "y"])).sum()
-    else:
-        buyers = df["buyer"].fillna(0).astype(int).sum()
+    # 🧠 нормалізація категорій
+    buyers = (df["buyer"].astype(str).str.strip().str.lower() == "buyer").sum()
+    not_buyers = (df["buyer"].astype(str).str.strip().str.lower() == "not buyer").sum()
 
     conversion_rate = buyers / total_users if total_users > 0 else 0
 
