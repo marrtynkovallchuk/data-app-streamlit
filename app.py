@@ -131,11 +131,14 @@ for metric, label in [
         title=label,
         markers=True,
     )
+    # явно задаємо мітку для кожної точки з даних
     fig.update_xaxes(
-        tickformat="%d %b",   # показуємо: 02 Oct, 03 Oct
+        tickmode="array",
+        tickvals=daily["Date"].tolist(),
+        ticktext=daily["Date"].dt.strftime("%d.%m").tolist(),
         tickangle=-45,
     )
-    fig.update_layout(height=300, margin=dict(l=0, r=0, t=40, b=0))
+    fig.update_layout(height=320, margin=dict(l=0, r=0, t=40, b=60))
     st.plotly_chart(fig, use_container_width=True)
 
 # ─────────────────────────────────────────────
