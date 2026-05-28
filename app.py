@@ -130,31 +130,32 @@ st.write("Paid credits over time")
 st.line_chart(daily.set_index("Date")["paid_credits"])
 
 # ─────────────────────────────────────────────
-# MONTH-OVER-MONTH + ANOMALY DETECTION
+# DAY-OVER-DAY + ANOMALY DETECTION
 # ─────────────────────────────────────────────
-st.subheader("📊 Critical Changes (Month-over-Month)")
+st.subheader("📊 Critical Changes (Day-over-Day)")
 
-df["month"] = df["date"].dt.to_period("M")
-monthly = (
-    df.groupby("month")
+daily_dod = (
+    df.groupby(df["date"].dt.date)
     .agg(
-        deliveries   =("delivery_id",     "nunique"),
-        opens        =("is_open",          "sum"),
-        clicks       =("is_click",         "sum"),
-        paid         =("is_paid",          "sum"),
+        deliveries =("delivery_id", "nunique"),
+        opens      =("is_open",      "sum"),
+        clicks     =("is_click",     "sum"),
+        paid       =("is_paid",      "sum"),
     )
     .reset_index()
-    .sort_values("month")
+    .sort_values("date")
 )
-monthly["open_rate"] = monthly["opens"]  / monthly["deliveries"].replace(0, np.nan)
-monthly["ctr"]       = monthly["clicks"] / monthly["opens"].replace(0, np.nan)
-monthly["paid_rate"] = monthly["paid"]   / monthly["clicks"].replace(0, np.nan)
+daily_dod["open_rate"] = daily_dod["opens"]  / daily_dod["deliveries"].replace(0, np.nan)
+daily_dod["ctr"]       = daily_dod["clicks"] / daily_dod["opens"].replace(0, np.nan)
+daily_dod["paid_rate"] = daily_dod["paid"]   / daily_dod["clicks"].replace(0, np.nan)
 
-if len(monthly) < 2:
-    st.warning("Not enough data for month-over-month comparison.")
+if len(daily_dod) < 2:
+    st.warning("Not enough data for day-over-day comparison.")
 else:
-    curr = monthly.iloc[-1]
-    prev = monthly.iloc[-2]
+    curr = daily_dod.iloc[-1]
+    prev = daily_dod.iloc[-2]
+
+    st.caption(f"Порiвняння: {curr['date']} vs {prev['date']}")
 
     for key, label in [("open_rate", "Open Rate"), ("ctr", "CTR"),
                        ("paid_rate", "Paid Rate"), ("deliveries", "Deliveries")]:
@@ -165,7 +166,7 @@ else:
             fmt = f"{c_val:.2%}" if key != "deliveries" else f"{int(c_val):,}"
             st.metric(label, fmt, f"{change:+.1%}")
             if abs(change) > ANOMALY_THRESHOLD:
-                st.error(f"⚠️ Critical change in {label}: {change:+.1%}")
+                st.error(f"Critical change in {label}: {change:+.1%}")
 
 # ─────────────────────────────────────────────
 # BREAKDOWN: response type + rule
@@ -237,7 +238,7 @@ st.bar_chart(seg.set_index("label")["paid_rate"])
 st.subheader("🤖 AI-generated summary")
 
 def generate_monitoring_summary(open_rate, ctr, paid_rate, total_creds,
-                                 monthly_df, anomaly_threshold):
+                                 daily_df, anomaly_threshold):
     lines = []
 
     # open rate
@@ -264,24 +265,24 @@ def generate_monitoring_summary(open_rate, ctr, paid_rate, total_creds,
     else:
         lines.append(f"📊 Paid rate {paid_rate:.1%} — помірна конверсія, варто сегментувати відправки на buyers та non-buyers.")
 
-    # MoM anomalies
-    if len(monthly_df) >= 2:
-        curr_m = monthly_df.iloc[-1]
-        prev_m = monthly_df.iloc[-2]
+    # DoD anomalies
+    if len(daily_df) >= 2:
+        curr_m = daily_df.iloc[-1]
+        prev_m = daily_df.iloc[-2]
         for key, label in [("open_rate","Open rate"), ("ctr","CTR"), ("paid_rate","Paid rate")]:
-            if prev_m[key] > 0:
+            if pd.notna(prev_m[key]) and prev_m[key] > 0:
                 change = (curr_m[key] - prev_m[key]) / prev_m[key]
                 if change < -anomaly_threshold:
-                    lines.append(f"🚨 {label} впав на {abs(change):.0%} MoM — критична зміна, потребує аналізу.")
+                    lines.append(f"{label} впав на {abs(change):.0%} DoD — критична змiна, потребує аналiзу.")
                 elif change > anomaly_threshold:
-                    lines.append(f"📈 {label} виріс на {change:.0%} MoM — позитивна динаміка.")
+                    lines.append(f"{label} вирiс на {change:.0%} DoD — позитивна динамiка.")
 
     lines.append(f"💡 Загальна рекомендація: фокус на сегменті buyers та тестування персоналізованого контенту для підвищення CTR і paid rate.")
     return "\n\n".join(lines)
 
 if st.button("Generate summary"):
     summary = generate_monitoring_summary(
-        open_rate, ctr, paid_rate, total_creds, monthly, ANOMALY_THRESHOLD
+        open_rate, ctr, paid_rate, total_creds, daily_dod, ANOMALY_THRESHOLD
     )
     st.info(summary)
 
@@ -464,3 +465,4 @@ else:
                 guardrail_ok, primary_sig, primary_uplift, MIN_LIFT
             )
             st.info(rec)
+
