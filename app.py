@@ -51,13 +51,6 @@ st.success("File uploaded successfully!")
 # ─────────────────────────────────────────────
 st.sidebar.header("Filters")
 
-min_d = df["date"].min().date()
-max_d = df["date"].max().date()
-date_range = st.sidebar.date_input("Date range", value=(min_d, max_d),
-                                    min_value=min_d, max_value=max_d)
-if isinstance(date_range, (list, tuple)) and len(date_range) == 2:
-    df = df[(df["date"].dt.date >= date_range[0]) & (df["date"].dt.date <= date_range[1])]
-
 segment = st.sidebar.selectbox("Segment", ["All", "Buyers only", "Non-buyers only"])
 if segment == "Buyers only":
     df = df[df["is_buyer"]]
