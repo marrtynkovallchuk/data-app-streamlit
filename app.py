@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import csv
+import plotly.express as px
 from scipy.stats import chi2_contingency, norm
 
 st.title("📊 Data App - Email Retention")
@@ -119,17 +120,24 @@ daily["open_rate"] = daily["opens"]  / daily["deliveries"].replace(0, np.nan)
 daily["ctr"]       = daily["clicks"] / daily["opens"].replace(0, np.nan)
 daily["paid_rate"] = daily["paid"]   / daily["clicks"].replace(0, np.nan)
 
-st.write("Open rate over time")
-st.line_chart(daily.set_index("Date")["open_rate"])
-
-st.write("CTR (Click/Open) over time")
-st.line_chart(daily.set_index("Date")["ctr"])
-
-st.write("Paid rate over time")
-st.line_chart(daily.set_index("Date")["paid_rate"])
-
-st.write("Paid credits over time")
-st.line_chart(daily.set_index("Date")["paid_credits"])
+for metric, label in [
+    ("open_rate",   "Open Rate"),
+    ("ctr",         "CTR (Click/Open)"),
+    ("paid_rate",   "Paid Rate"),
+    ("paid_credits","Paid Credits"),
+]:
+    fig = px.line(
+        daily, x="Date", y=metric,
+        title=label,
+        markers=True,
+    )
+    fig.update_xaxes(
+        tickformat="%d.%m",   # показуємо день.місяць
+        dtick="D1",           # крок — 1 день
+        tickangle=-45,
+    )
+    fig.update_layout(height=300, margin=dict(l=0, r=0, t=40, b=0))
+    st.plotly_chart(fig, use_container_width=True)
 
 # ─────────────────────────────────────────────
 # DAY-OVER-DAY + ANOMALY DETECTION
@@ -468,4 +476,3 @@ else:
                 guardrail_ok, primary_sig, primary_uplift, MIN_LIFT
             )
             st.info(rec)
-
