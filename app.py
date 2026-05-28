@@ -132,8 +132,7 @@ for metric, label in [
         markers=True,
     )
     fig.update_xaxes(
-        tickformat="%d.%m",   # показуємо день.місяць
-        dtick="D1",           # крок — 1 день
+        tickformat="%d %b",   # показуємо: 02 Oct, 03 Oct
         tickangle=-45,
     )
     fig.update_layout(height=300, margin=dict(l=0, r=0, t=40, b=0))
