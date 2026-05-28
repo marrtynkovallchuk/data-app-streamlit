@@ -113,6 +113,8 @@ daily = (
     .reset_index()
     .rename(columns={"date": "Date"})
 )
+# конвертуємо в datetime щоб Streamlit показував дні, а не місяці
+daily["Date"] = pd.to_datetime(daily["Date"])
 daily["open_rate"] = daily["opens"]  / daily["deliveries"].replace(0, np.nan)
 daily["ctr"]       = daily["clicks"] / daily["opens"].replace(0, np.nan)
 daily["paid_rate"] = daily["paid"]   / daily["clicks"].replace(0, np.nan)
@@ -145,6 +147,7 @@ daily_dod = (
     .reset_index()
     .sort_values("date")
 )
+daily_dod["date"] = pd.to_datetime(daily_dod["date"])
 daily_dod["open_rate"] = daily_dod["opens"]  / daily_dod["deliveries"].replace(0, np.nan)
 daily_dod["ctr"]       = daily_dod["clicks"] / daily_dod["opens"].replace(0, np.nan)
 daily_dod["paid_rate"] = daily_dod["paid"]   / daily_dod["clicks"].replace(0, np.nan)
