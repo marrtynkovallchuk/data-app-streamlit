@@ -41,7 +41,6 @@ for col in ["not_free_credits", "total_credits"]:
 df["is_buyer"] = df["buyer"].astype(str).str.lower() == "buyer"
 df["is_open"]  = df["read_ts"].notna()  if "read_ts"  in df.columns else False
 df["is_click"] = df["click_ts"].notna() if "click_ts" in df.columns else False
-# правильна метрика монетизації — платні кредити після кліку з email
 df["is_paid"]  = df["not_free_credits"] > 0
 
 st.success("File uploaded successfully!")
@@ -69,7 +68,6 @@ clicks      = int(df["is_click"].sum())
 paid        = int(df["is_paid"].sum())
 total_creds = df["not_free_credits"].sum()
 
-# послідовна воронка: open/sent, click/open, paid/click
 open_rate = opens  / deliveries if deliveries else 0
 ctr       = clicks / opens      if opens      else 0
 paid_rate = paid   / clicks     if clicks     else 0
@@ -107,7 +105,7 @@ daily = (
     .reset_index()
     .rename(columns={"date": "Date"})
 )
-# конвертуємо в datetime щоб Streamlit показував дні, а не місяці
+
 daily["Date"] = pd.to_datetime(daily["Date"])
 daily["open_rate"] = daily["opens"]  / daily["deliveries"].replace(0, np.nan)
 daily["ctr"]       = daily["clicks"] / daily["opens"].replace(0, np.nan)
@@ -124,7 +122,7 @@ for metric, label in [
         title=label,
         markers=True,
     )
-    # явно задаємо мітку для кожної точки з даних
+   
     fig.update_xaxes(
         tickmode="array",
         tickvals=daily["Date"].tolist(),
@@ -308,7 +306,7 @@ else:
     df_g = df.dropna(subset=[selected_group])
     vals = df_g[selected_group].unique()
 
-    # явно знаходимо control і test — без залежності від порядку рядків
+    
     control_val = next((v for v in vals if str(v).lower() == "control"), None)
     test_val    = next((v for v in vals if str(v).lower() == "test"),    None)
 
@@ -413,7 +411,6 @@ else:
 
         primary_sig    = r_paid[2] is not None and r_paid[2] < SIGNIFICANCE_LEVEL
         primary_uplift = r_paid[3] if r_paid[3] is not None else 0
-        # guardrail: CTR не повинен впасти більш ніж на 5%
         guardrail_ok   = r_ctr[3] is None or r_ctr[3] >= -0.05
 
         if primary_sig and primary_uplift > MIN_LIFT and guardrail_ok:
